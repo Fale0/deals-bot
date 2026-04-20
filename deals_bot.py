@@ -1,4 +1,5 @@
 import os
+import html
 import feedparser
 import re
 from datetime import datetime, timedelta, timezone
