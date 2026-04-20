@@ -34,33 +34,23 @@ else:
 translator = GoogleTranslator(source='en', target='ru')
 MOSCOW_TZ = timezone(timedelta(hours=3))
 
-# ==================== ИСТОЧНИКИ RSS ====================
-# Категории: bank, electronics, marketplace, lifehack
+# ==================== ТОЛЬКО СПЕЦИАЛИЗИРОВАННЫЕ ИСТОЧНИКИ ====================
+# Никаких новостных лент! Только сайты со скидками, купонами и лайфхаками
 
 RSS_FEEDS = [
-    # БАНКИ - акции и кешбэк
+    # БАНКИ - акции, кешбэк, промо
     {
         "url": "https://brobank.ru/promo/feed/",
-        "name": "BroBank",
+        "name": "BroBank (Акции банков)",
         "category": "bank"
     },
     {
-        "url": "https://www.banki.ru/news/rss/",
-        "name": "Banki.ru",
+        "url": "https://vashifinancy.ru/rss/",
+        "name": "Ваши финансы",
         "category": "bank"
     },
-    # ЭЛЕКТРОНИКА - сайты со скидками
-    {
-        "url": "https://www.ixbt.com/export/rss/lastnews.xml",
-        "name": "iXBT",
-        "category": "electronics"
-    },
-    {
-        "url": "https://3dnews.ru/news/rss/",
-        "name": "3DNews",
-        "category": "electronics"
-    },
-    # МАРКЕТПЛЕЙСЫ - промокоды и купоны
+    
+    # СКИДКИ И КУПОНЫ
     {
         "url": "https://promokodus.com/rss",
         "name": "Promokodus",
@@ -71,44 +61,56 @@ RSS_FEEDS = [
         "name": "Promokod.party",
         "category": "marketplace"
     },
-    # ЛАЙФХАКИ
+    {
+        "url": "https://skidkaonline.ru/rss",
+        "name": "СкидкаОнлайн",
+        "category": "marketplace"
+    },
+    {
+        "url": "https://promocod.ru/rss",
+        "name": "PromoCod.ru",
+        "category": "marketplace"
+    },
+    
+    # ЛАЙФХАКИ (жизнь + техника)
     {
         "url": "https://lifehacker.ru/rss/",
-        "name": "Lifehacker.ru",
+        "name": "Lifehacker",
         "category": "lifehack"
     },
     {
-        "url": "https://vc.ru/feed",
-        "name": "VC.ru",
+        "url": "https://lifehacker.ru/feed/",
+        "name": "Lifehacker (alt)",
+        "category": "lifehack"
+    },
+    {
+        "url": "https://life.ru/rss",
+        "name": "Life.ru",
         "category": "lifehack"
     },
 ]
 
-# ==================== КЛЮЧЕВЫЕ СЛОВА ДЛЯ ФИЛЬТРАЦИИ ====================
-# Если новость НЕ содержит эти слова - она не попадёт в выдачу
-
+# ==================== КЛЮЧЕВЫЕ СЛОВА ДЛЯ СКИДОК ====================
 DEAL_KEYWORDS = [
-    # Скидки и акции
     "скидка", "скидки", "акция", "акции", "промокод", "промо", "купон",
     "распродажа", "sale", "выгода", "выгод", "дешев", "цена снижен",
-    "кешбэк", "cashback", "кэшбэк", "бонус", "подарок",
-    # Банковские продукты
-    "кредит", "ипотека", "вклад", "карт", "дебетов", "кредитн",
-    "накопительн", "счет", "процент", "ставка", "рефинансирование",
-    # Электроника
-    "смартфон", "iphone", "айфон", "samsung", "ноутбук", "телевизор",
-    "наушники", "планшет", "гаджет", "умные часы", "фитнес-браслет",
-    # Маркетплейсы
-    "ozon", "озон", "wildberries", "вайлдберриз", "алиэкспресс", "aliexpress",
-    "яндекс маркет", "сбермегамаркет", "мегамаркет",
-    # Лайфхаки
-    "лайфхак", "лайфхаки", "секрет", "хитрость", "совет", "экономия",
-    "как сэкономить", "полезн", "инструкция", "настройка"
+    "кешбэк", "cashback", "кэшбэк", "бонус", "подарок", "спецпредложение",
+    "халява", "бесплатно", "даром", "скидочный", "акционный"
 ]
 
-LIFEHACK_EXTRA_KEYWORDS = [
-    "ios", "айос", "iphone", "айфон", "mac", "мак", "apple", "эппл",
-    "андроид", "android", "windows", "виндовс", "настройк", "лайфхак"
+BANK_KEYWORDS = [
+    "банк", "карт", "кредит", "ипотека", "вклад", "накопительн",
+    "счет", "процент", "ставка", "кешбэк", "бонус"
+]
+
+MARKETPLACE_KEYWORDS = [
+    "ozon", "озон", "wildberries", "вайлдберриз", "алиэкспресс", "aliexpress",
+    "яндекс маркет", "сбермегамаркет", "мегамаркет", "ламода", "детский мир"
+]
+
+LIFEHACK_KEYWORDS = [
+    "лайфхак", "совет", "секрет", "хитрость", "полезн", "инструкция",
+    "как сделать", "как настроить", "экономия", "быстрый способ"
 ]
 
 def clean_html(raw):
@@ -116,39 +118,39 @@ def clean_html(raw):
         return ""
     return re.sub(r'<.*?>', '', raw)
 
-def is_deal_related(title, description, category):
-    """Проверяет, относится ли статья к скидкам/акциям"""
+def is_relevant_article(title, description, category):
+    """Проверяет, релевантна ли статья для категории"""
     text = (title + " " + description).lower()
     
-    # Для категории lifehack - особые правила
-    if category == "lifehack":
-        # Должен содержать лайфхак-слова И tech-слова
-        has_lifehack = any(kw in text for kw in ["лайфхак", "совет", "секрет", "хитрость", "экономия", "полезн"])
-        has_tech = any(kw in text for kw in LIFEHACK_EXTRA_KEYWORDS)
-        return has_lifehack and has_tech
+    if category == "bank":
+        return any(kw in text for kw in DEAL_KEYWORDS) and any(kw in text for kw in BANK_KEYWORDS)
     
-    # Для остальных категорий - проверяем наличие deal-ключевых слов
-    return any(kw in text for kw in DEAL_KEYWORDS)
+    elif category == "marketplace":
+        return any(kw in text for kw in DEAL_KEYWORDS) or any(kw in text for kw in MARKETPLACE_KEYWORDS)
+    
+    elif category == "lifehack":
+        return any(kw in text for kw in LIFEHACK_KEYWORDS)
+    
+    return False
 
 def calculate_importance(title, description, category):
-    """Оценка выгодности от 1 до 10"""
+    """Оценка от 1 до 10"""
     text = (title + " " + description).lower()
     score = 5
     
-    # Высокоприоритетные слова
-    high_priority = ["скидка", "акция", "промокод", "купон", "распродажа", "кешбэк", "бесплатно"]
-    for kw in high_priority:
+    # Базовые очки за deal-слова
+    for kw in DEAL_KEYWORDS[:5]:
         if kw in text:
             score += 1
     
-    # Упоминание конкретных площадок
-    if "ozon" in text or "wildberries" in text or "алиэкспресс" in text:
-        score += 1
-    if "банк" in text or "карт" in text:
-        score += 1
+    # Бонусы по категориям
+    if category == "bank" and any(kw in text for kw in ["кешбэк", "cashback", "процент"]):
+        score += 2
     
-    # Лайфхаки с iOS получают бонус
-    if category == "lifehack" and ("ios" in text or "iphone" in text or "айфон" in text):
+    if category == "marketplace" and any(kw in text for kw in MARKETPLACE_KEYWORDS):
+        score += 2
+    
+    if category == "lifehack" and any(kw in text for kw in ["техник", "гаджет", "смартфон", "ноутбук"]):
         score += 2
     
     return min(10, max(1, score))
@@ -156,75 +158,56 @@ def calculate_importance(title, description, category):
 def translate_text(text):
     if not text or len(text.strip()) < 5:
         return text
-    # Если текст уже на русском - не переводим
     if any(ch in text for ch in "абвгдеёжзийклмнопрстуфхцчшщъыьэюя"):
         return text
     try:
-        text_to_translate = text[:4000] if len(text) > 4000 else text
-        return translator.translate(text_to_translate)
-    except Exception as e:
-        print(f"Ошибка перевода: {e}", flush=True)
+        return translator.translate(text[:4000] if len(text) > 4000 else text)
+    except:
         return text
 
 def analyze_with_deepseek(title, content):
     if not DEEPSEEK_AVAILABLE:
         return ""
     try:
-        prompt = f"""Проанализируй это предложение и выдели главное о скидке.
+        prompt = f"""Проанализируй скидку/акцию и выдели главное.
 
 Заголовок: {title}
-Описание: {content[:300]}
+Описание: {content[:200]}
 
-Ответь кратко в формате:
-💎 Суть: (1 предложение)
-💰 Выгода: (цифра или процент)"""
+Ответь кратко в 1-2 строки: 💎 Суть и 💰 Выгода"""
         response = openai.ChatCompletion.create(
             model="deepseek-chat",
             messages=[{"role": "user", "content": prompt}],
             temperature=0.7,
-            max_tokens=100
+            max_tokens=80
         )
-        return f"\n\n🤖 *AI-анализ:*\n{response.choices[0].message.content}"
-    except Exception as e:
-        print(f"Ошибка DeepSeek: {e}", flush=True)
+        return f"\n\n🤖 *AI:* {response.choices[0].message.content}"
+    except:
         return ""
 
-def extract_image_from_article(link):
+def extract_image(link):
     try:
-        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
-        response = requests.get(link, timeout=10, headers=headers)
-        patterns = [
-            r'<meta[^>]*property="og:image"[^>]*content="([^"]+)"',
-            r'<meta[^>]*name="twitter:image"[^>]*content="([^"]+)"',
-        ]
-        for pattern in patterns:
-            match = re.search(pattern, response.text, re.IGNORECASE)
-            if match:
-                img_url = match.group(1)
-                if img_url.startswith('http'):
-                    return img_url
-    except Exception:
+        headers = {'User-Agent': 'Mozilla/5.0'}
+        r = requests.get(link, timeout=10, headers=headers)
+        match = re.search(r'<meta[^>]*property="og:image"[^>]*content="([^"]+)"', r.text)
+        if match and match.group(1).startswith('http'):
+            return match.group(1)
+    except:
         pass
     return None
 
-def generate_ai_image(title, category):
+def generate_image(title, category):
     try:
         prompt = f"{category} discount sale, {title[:50]}"
-        encoded_prompt = urllib.parse.quote(prompt)
-        return f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=512&height=512&nologo=true"
-    except Exception:
+        encoded = urllib.parse.quote(prompt)
+        return f"https://image.pollinations.ai/prompt/{encoded}?width=512&height=512&nologo=true"
+    except:
         return "https://i.imgur.com/Xr5Kq9M.png"
 
-def get_news_image(link, title, category):
-    image_url = extract_image_from_article(link)
-    if not image_url:
-        image_url = generate_ai_image(title, category)
-    return image_url
-
 def fetch_deals(hours=24, limit=5, categories=None):
-    """Сбор ТОЛЬКО релевантных скидок/акций/лайфхаков"""
+    """Сбор ТОЛЬКО из скидочных источников"""
     if categories is None:
-        categories = ["bank", "electronics", "marketplace"]
+        categories = ["bank", "marketplace"]
     
     articles = []
     cutoff = datetime.now(timezone.utc) - timedelta(hours=hours)
@@ -234,151 +217,116 @@ def fetch_deals(hours=24, limit=5, categories=None):
             continue
         
         try:
-            print(f"Загружаю: {feed_conf['name']}", flush=True)
+            print(f"📥 {feed_conf['name']}...", flush=True)
             feed = feedparser.parse(feed_conf["url"])
             
-            for entry in feed.entries[:15]:
+            for entry in feed.entries[:10]:
                 pub = entry.get("published_parsed")
                 if not pub:
                     continue
-                pub_dt_utc = datetime.fromtimestamp(
-                    datetime(*pub[:6]).timestamp(),
-                    tz=timezone.utc
-                )
-                if pub_dt_utc < cutoff:
+                pub_dt = datetime.fromtimestamp(datetime(*pub[:6]).timestamp(), tz=timezone.utc)
+                if pub_dt < cutoff:
                     continue
                 
-                title_en = entry.get("title", "")
-                desc_en = clean_html(entry.get("description", ""))[:500]
+                title = entry.get("title", "")
+                desc = clean_html(entry.get("description", ""))[:400]
                 
-                # 🔥 ВАЖНО: проверяем, относится ли к скидкам
-                if not is_deal_related(title_en, desc_en, feed_conf["category"]):
+                # 🔥 СТРОГАЯ ФИЛЬТРАЦИЯ
+                if not is_relevant_article(title, desc, feed_conf["category"]):
                     continue
                 
-                pub_dt_msk = pub_dt_utc.astimezone(MOSCOW_TZ)
-                link = entry.get("link", "#")
-                
-                title_ru = translate_text(title_en)
-                desc_ru = translate_text(desc_en[:300])
-                
-                importance = calculate_importance(title_en, desc_en, feed_conf["category"])
-                
-                image_url = None
-                if 'media_content' in entry and entry.media_content:
-                    image_url = entry.media_content[0].get('url')
-                if not image_url:
-                    image_url = get_news_image(link, title_en, feed_conf["category"])
+                title_ru = translate_text(title)
+                desc_ru = translate_text(desc[:250])
                 
                 articles.append({
                     "title": title_ru,
-                    "link": link,
+                    "link": entry.get("link", "#"),
                     "desc": desc_ru,
-                    "date": pub_dt_msk.strftime("%d.%m %H:%M"),
+                    "date": pub_dt.astimezone(MOSCOW_TZ).strftime("%d.%m %H:%M"),
                     "source": feed_conf["name"],
                     "category": feed_conf["category"],
-                    "importance": importance,
-                    "image_url": image_url
+                    "importance": calculate_importance(title, desc, feed_conf["category"]),
+                    "image": extract_image(entry.get("link", "")) or generate_image(title, feed_conf["category"])
                 })
         except Exception as e:
-            print(f"Ошибка {feed_conf['name']}: {e}", flush=True)
+            print(f"❌ {feed_conf['name']}: {e}", flush=True)
     
-    # Сортируем по важности
     articles.sort(key=lambda x: x["importance"], reverse=True)
     
-    # Удаляем дубликаты
+    # Убираем дубликаты
     seen = set()
     unique = []
     for a in articles:
-        key = a["title"][:50]
+        key = a["title"][:40]
         if key not in seen:
             seen.add(key)
             unique.append(a)
     
+    print(f"✅ Найдено {len(unique)} релевантных предложений", flush=True)
     return unique[:limit]
 
 def send_message(chat_id, text, parse_mode="Markdown"):
     try:
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-        payload = {
+        requests.post(url, json={
             "chat_id": chat_id,
             "text": text,
             "parse_mode": parse_mode,
             "disable_web_page_preview": True
-        }
-        requests.post(url, json=payload, timeout=30)
-    except Exception as e:
-        print(f"Ошибка отправки: {e}", flush=True)
+        }, timeout=30)
+    except:
+        pass
 
 def send_photo(chat_id, image_url, caption):
     try:
         url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendPhoto"
-        payload = {
+        r = requests.post(url, json={
             "chat_id": chat_id,
             "photo": image_url,
             "caption": caption,
             "parse_mode": "Markdown"
-        }
-        response = requests.post(url, json=payload, timeout=30)
-        if response.status_code != 200:
+        }, timeout=30)
+        if r.status_code != 200:
             send_message(chat_id, caption)
-    except Exception:
+    except:
         send_message(chat_id, caption)
 
-def show_main_keyboard(chat_id):
+def show_keyboard(chat_id):
     keyboard = {
         "keyboard": [
-            ["🔥 ТОП-5 СКИДОК И АКЦИЙ"],
-            ["💡 ТОП-3 ЛАЙФХАКА (iOS/техника)"]
+            ["🔥 ТОП-5 СКИДОК И КУПОНОВ"],
+            ["💡 ТОП-3 ЛАЙФХАКА"]
         ],
-        "resize_keyboard": True,
-        "one_time_keyboard": False
+        "resize_keyboard": True
     }
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
-    payload = {
+    requests.post(url, json={
         "chat_id": chat_id,
-        "text": "👇 *Выберите действие:*",
+        "text": "👇 *Выберите:*",
         "reply_markup": keyboard,
         "parse_mode": "Markdown"
-    }
-    requests.post(url, json=payload, timeout=30)
+    }, timeout=30)
 
-def auto_post_to_channel():
+def auto_post():
     if not CHANNEL_ID:
         return
-    print("🔄 Авто-рассылка...", flush=True)
-    deals = fetch_deals(hours=24, limit=5, categories=["bank", "electronics", "marketplace"])
+    deals = fetch_deals(hours=24, limit=5, categories=["bank", "marketplace"])
     if deals:
         send_message(CHANNEL_ID, "🛍 *ЛУЧШИЕ СКИДКИ ЗА 24 ЧАСА*")
-        for deal in deals:
-            caption = f"🔥 *{deal['title']}*\n\n📝 {deal['desc']}\n\n⭐ Выгодность: {deal['importance']}/10\n🔗 [Подробнее]({deal['link']})"
-            if deal.get("image_url"):
-                send_photo(CHANNEL_ID, deal["image_url"], caption)
-            else:
-                send_message(CHANNEL_ID, caption)
+        for d in deals:
+            cap = f"🔥 *{d['title']}*\n\n📝 {d['desc']}\n\n⭐ {d['importance']}/10\n🔗 [Подробнее]({d['link']})"
+            send_photo(CHANNEL_ID, d["image"], cap)
             time.sleep(1)
-
-def cold_start():
-    if CHANNEL_ID:
-        print("❄️ Холодный старт...", flush=True)
-        auto_post_to_channel()
 
 def start_scheduler():
     global scheduler_started
     if scheduler_started:
         return
     scheduler = BackgroundScheduler()
-    scheduler.add_job(auto_post_to_channel, 'interval', hours=CHECK_INTERVAL_HOURS)
+    scheduler.add_job(auto_post, 'interval', hours=CHECK_INTERVAL_HOURS)
     scheduler.start()
     scheduler_started = True
     print(f"⏰ Планировщик: каждые {CHECK_INTERVAL_HOURS} ч.", flush=True)
-
-def keep_alive():
-    while True:
-        time.sleep(10 * 60)
-        try:
-            requests.get("http://localhost:10000/health", timeout=10)
-        except:
-            pass
 
 def bot_polling():
     global last_update_id
@@ -387,82 +335,74 @@ def bot_polling():
     while True:
         try:
             url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates?offset={last_update_id+1}&timeout=30"
-            resp = requests.get(url, timeout=35)
-            updates = resp.json()
+            updates = requests.get(url, timeout=35).json()
             
-            for update in updates.get("result", []):
-                last_update_id = update["update_id"]
-                msg = update.get("message", {})
+            for upd in updates.get("result", []):
+                last_update_id = upd["update_id"]
+                msg = upd.get("message", {})
                 chat_id = msg.get("chat", {}).get("id")
                 text = msg.get("text", "")
                 
-                print(f"📨 Получено: '{text}'", flush=True)
+                print(f"📨 '{text}'", flush=True)
                 
                 if text == "/start":
-                    send_message(chat_id,
-                        "🛍 *БОТ СКИДОК И АКЦИЙ v2.0*\n\n"
-                        "✅ *Что я умею:*\n"
-                        "🔹 ТОП-5 скидок/акций/промокодов (банки, электроника, маркетплейсы)\n"
-                        "🔹 ТОП-3 лайфхака (iOS, техника, экономия)\n\n"
-                        "⚠️ *Я отфильтровываю только релевантные скидки!*"
+                    send_message(chat_id, 
+                        "🛍 *БОТ СКИДОК И ЛАЙФХАКОВ*\n\n"
+                        "✅ *Источники:* только сайты скидок и лайфхаков\n"
+                        "🔹 ТОП-5 скидок/купонов (банки, маркетплейсы)\n"
+                        "🔹 ТОП-3 лайфхака (жизнь + техника)\n\n"
+                        "⚠️ *Никаких новостей — только акции!*"
                     )
-                    show_main_keyboard(chat_id)
+                    show_keyboard(chat_id)
                 
-                elif text == "🔥 ТОП-5 СКИДОК И АКЦИЙ":
-                    send_message(chat_id, "🔍 *Ищу скидки за 24 часа...*")
-                    deals = fetch_deals(hours=24, limit=5, categories=["bank", "electronics", "marketplace"])
+                elif text == "🔥 ТОП-5 СКИДОК И КУПОНОВ":
+                    send_message(chat_id, "🔍 *Ищу скидки...*")
+                    deals = fetch_deals(hours=48, limit=5, categories=["bank", "marketplace"])
                     
                     if deals:
-                        send_message(chat_id, f"✅ *Найдено {len(deals)} предложений:*")
-                        for i, deal in enumerate(deals, 1):
-                            caption = f"*{i}. {deal['title']}*\n\n📝 {deal['desc']}\n\n📅 {deal['date']} | 📰 {deal['source']}\n⭐ Выгодность: {deal['importance']}/10\n\n🔗 [Подробнее]({deal['link']})"
+                        send_message(chat_id, f"✅ *Найдено {len(deals)}:*")
+                        for i, d in enumerate(deals, 1):
+                            cap = f"*{i}. {d['title']}*\n\n📝 {d['desc']}\n\n📅 {d['date']} | ⭐ {d['importance']}/10\n\n🔗 [Подробнее]({d['link']})"
                             if DEEPSEEK_AVAILABLE:
-                                caption += analyze_with_deepseek(deal['title'], deal['desc'])
-                            if deal.get("image_url"):
-                                send_photo(chat_id, deal["image_url"], caption)
-                            else:
-                                send_message(chat_id, caption)
+                                cap += analyze_with_deepseek(d['title'], d['desc'])
+                            send_photo(chat_id, d["image"], cap)
                             time.sleep(1)
                     else:
-                        send_message(chat_id, "😕 *Скидок не найдено.*\nПопробуйте позже.")
-                    show_main_keyboard(chat_id)
+                        send_message(chat_id, "😕 Скидок не найдено. Попробуйте позже.")
+                    show_keyboard(chat_id)
                 
-                elif text == "💡 ТОП-3 ЛАЙФХАКА (iOS/техника)":
-                    send_message(chat_id, "🔍 *Ищу лайфхаки за 48 часов...*")
-                    deals = fetch_deals(hours=48, limit=3, categories=["lifehack"])
+                elif text == "💡 ТОП-3 ЛАЙФХАКА":
+                    send_message(chat_id, "🔍 *Ищу лайфхаки...*")
+                    deals = fetch_deals(hours=72, limit=3, categories=["lifehack"])
                     
                     if deals:
-                        send_message(chat_id, f"✅ *Найдено {len(deals)} лайфхаков:*")
-                        for i, deal in enumerate(deals, 1):
-                            caption = f"*{i}. {deal['title']}*\n\n📝 {deal['desc']}\n\n📅 {deal['date']} | 📰 {deal['source']}\n\n🔗 [Читать]({deal['link']})"
-                            if DEEPSEEK_AVAILABLE:
-                                caption += analyze_with_deepseek(deal['title'], deal['desc'])
-                            send_message(chat_id, caption)
+                        send_message(chat_id, f"✅ *Найдено {len(deals)}:*")
+                        for i, d in enumerate(deals, 1):
+                            cap = f"*{i}. {d['title']}*\n\n📝 {d['desc']}\n\n📅 {d['date']} | 📰 {d['source']}\n\n🔗 [Читать]({d['link']})"
+                            send_message(chat_id, cap)
                             time.sleep(1)
                     else:
-                        send_message(chat_id, "😕 *Лайфхаков не найдено.*")
-                    show_main_keyboard(chat_id)
+                        send_message(chat_id, "😕 Лайфхаков не найдено.")
+                    show_keyboard(chat_id)
                 
                 else:
-                    show_main_keyboard(chat_id)
+                    show_keyboard(chat_id)
                     
         except Exception as e:
-            print(f"Ошибка polling: {e}", flush=True)
+            print(f"❌ Polling: {e}", flush=True)
             time.sleep(5)
 
-def start_background_tasks():
-    print("🔄 Запуск фоновых задач...", flush=True)
+def start_background():
     if CHANNEL_ID:
-        threading.Thread(target=cold_start, daemon=True).start()
+        threading.Thread(target=auto_post, daemon=True).start()
     start_scheduler()
-    threading.Thread(target=keep_alive, daemon=True).start()
-    if BOT_TOKEN:
-        threading.Thread(target=bot_polling, daemon=True).start()
-        print("✅ Telegram бот запущен", flush=True)
+    threading.Thread(target=lambda: (time.sleep(600), requests.get("http://localhost:10000/health")) or True, daemon=True).start()
+    threading.Thread(target=bot_polling, daemon=True).start()
+    print("✅ Все задачи запущены", flush=True)
 
 @app.route('/')
 def index():
-    return "🛍 Бот скидок работает!"
+    return "🛍 Бот скидок (только акции)"
 
 @app.route('/health')
 def health():
@@ -470,6 +410,6 @@ def health():
 
 if __name__ == "__main__":
     port = int(os.environ.get("PORT", 10000))
-    threading.Timer(3.0, start_background_tasks).start()
-    print(f"🌐 Flask на порту {port}", flush=True)
+    threading.Timer(3.0, start_background).start()
+    print(f"🌐 Порт {port}", flush=True)
     app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
