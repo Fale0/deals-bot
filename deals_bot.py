@@ -495,31 +495,26 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
 if __name__ == "__main__":
-    # ⚠️ ВАЖНО: Flask должен запуститься ПЕРВЫМ и открыть порт
     port = int(os.environ.get("PORT", 10000))
     
-    # Запускаем Flask в отдельном потоке, чтобы он сразу открыл порт
-    def run_flask():
-        app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+    # 1. ЗАПУСКАЕМ FLASK В ОСНОВНОМ ПОТОКЕ (блокирующий)
+    # Но перед этим запускаем всё остальное в отдельных потоках
     
-    flask_thread = threading.Thread(target=run_flask, daemon=True)
-    flask_thread.start()
-    print(f"🌐 Flask запущен на порту {port}")
+    # Холодный старт (в отдельном потоке, чтобы не блокировать Flask)
+    threading.Thread(target=cold_start, daemon=True).start()
     
-    # Даём Flask секунду на инициализацию
-    time.sleep(2)
+    # Планировщик (в отдельном потоке)
+    threading.Thread(target=start_scheduler, daemon=True).start()
     
-    # Холодный старт
-    cold_start()
+    # Auto-ping (в отдельном потоке)
+    threading.Thread(target=keep_alive, daemon=True).start()
+    print("🟢 Auto-ping активирован")
     
-    # Запуск планировщика
-    start_scheduler()
+    # Telegram бот (в отдельном потоке)
+    threading.Thread(target=bot_polling, daemon=True).start()
+    print("🤖 Telegram бот запущен в фоне")
     
-    # Auto-ping в отдельном потоке
-    ping_thread = threading.Thread(target=keep_alive, daemon=True)
-    ping_thread.start()
-    print("🟢 Auto-ping активирован (каждые 10 минут)")
-    
-    # Polling в основном потоке (блокирующий)
-    print("🤖 Запуск Telegram-бота...")
-    bot_polling()
+    # 2. FLASK ЗАПУСКАЕТСЯ ПОСЛЕДНИМ В ОСНОВНОМ ПОТОКЕ
+    # Это гарантирует, что порт откроется сразу
+    print(f"🌐 Запуск Flask на порту {port}...")
+    app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
