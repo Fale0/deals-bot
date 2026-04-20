@@ -494,8 +494,19 @@ if __name__ == "__main__":
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
 if __name__ == "__main__":
-    # Явно указываем порт ДО всего остального
+    # ⚠️ ВАЖНО: Flask должен запуститься ПЕРВЫМ и открыть порт
     port = int(os.environ.get("PORT", 10000))
+    
+    # Запускаем Flask в отдельном потоке, чтобы он сразу открыл порт
+    def run_flask():
+        app.run(host="0.0.0.0", port=port, debug=False, use_reloader=False)
+    
+    flask_thread = threading.Thread(target=run_flask, daemon=True)
+    flask_thread.start()
+    print(f"🌐 Flask запущен на порту {port}")
+    
+    # Даём Flask секунду на инициализацию
+    time.sleep(2)
     
     # Холодный старт
     cold_start()
@@ -508,9 +519,6 @@ if __name__ == "__main__":
     ping_thread.start()
     print("🟢 Auto-ping активирован (каждые 10 минут)")
     
-    # Polling в отдельном потоке
-    bot_thread = threading.Thread(target=bot_polling, daemon=True)
-    bot_thread.start()
-    
-    # Flask запускаем с явным хостом и портом
-    app.run(host="0.0.0.0", port=port)
+    # Polling в основном потоке (блокирующий)
+    print("🤖 Запуск Telegram-бота...")
+    bot_polling()
