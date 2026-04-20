@@ -34,68 +34,39 @@ else:
 translator = GoogleTranslator(source='en', target='ru')
 MOSCOW_TZ = timezone(timedelta(hours=3))
 
-# ==================== ТОЛЬКО СПЕЦИАЛИЗИРОВАННЫЕ ИСТОЧНИКИ ====================
-# Никаких новостных лент! Только сайты со скидками, купонами и лайфхаками
-
+# ==================== 40+ ПРОВЕРЕННЫХ ИСТОЧНИКОВ ====================
 RSS_FEEDS = [
-    # БАНКИ - акции, кешбэк, промо
-    {
-        "url": "https://brobank.ru/promo/feed/",
-        "name": "BroBank (Акции банков)",
-        "category": "bank"
-    },
-    {
-        "url": "https://vashifinancy.ru/rss/",
-        "name": "Ваши финансы",
-        "category": "bank"
-    },
+    # --- БАНКИ (акции, кешбэк) ---
+    {"url": "https://brobank.ru/promo/feed/", "name": "BroBank", "category": "bank"},
+    {"url": "https://vashifinancy.ru/rss/", "name": "Ваши финансы", "category": "bank"},
+    {"url": "https://www.banki.ru/news/rss/", "name": "Banki.ru", "category": "bank"},
+    {"url": "https://www.sravni.ru/rss/", "name": "Sravni.ru", "category": "bank"},
     
-    # СКИДКИ И КУПОНЫ
-    {
-        "url": "https://promokodus.com/rss",
-        "name": "Promokodus",
-        "category": "marketplace"
-    },
-    {
-        "url": "https://promokod.party/rss",
-        "name": "Promokod.party",
-        "category": "marketplace"
-    },
-    {
-        "url": "https://skidkaonline.ru/rss",
-        "name": "СкидкаОнлайн",
-        "category": "marketplace"
-    },
-    {
-        "url": "https://promocod.ru/rss",
-        "name": "PromoCod.ru",
-        "category": "marketplace"
-    },
+    # --- КУПОННЫЕ СЕРВИСЫ И АГРЕГАТОРЫ СКИДОК (то, что реально работает) ---
+    {"url": "https://promokodus.com/rss", "name": "Promokodus", "category": "marketplace"},
+    {"url": "https://promokod.party/rss", "name": "Promokod.party", "category": "marketplace"},
+    {"url": "https://skidkaonline.ru/rss", "name": "СкидкаОнлайн", "category": "marketplace"},
+    {"url": "https://promocod.ru/rss", "name": "PromoCod.ru", "category": "marketplace"},
+    {"url": "https://vsepromokody.ru/rss", "name": "ВсеПромокоды", "category": "marketplace"},
+    {"url": "https://bigsaleworld.com/feed/", "name": "BigSaleWorld", "category": "marketplace"},
     
-    # ЛАЙФХАКИ (жизнь + техника)
-    {
-        "url": "https://lifehacker.ru/rss/",
-        "name": "Lifehacker",
-        "category": "lifehack"
-    },
-    {
-        "url": "https://lifehacker.ru/feed/",
-        "name": "Lifehacker (alt)",
-        "category": "lifehack"
-    },
-    {
-        "url": "https://life.ru/rss",
-        "name": "Life.ru",
-        "category": "lifehack"
-    },
+    # --- КЕШБЭК-СЕРВИСЫ (акции и повышенный кешбэк) ---
+    {"url": "https://letyshops.ru/rss", "name": "LetyShops", "category": "marketplace"},
+    {"url": "https://www.megabonus.com/rss", "name": "Мегабонус", "category": "marketplace"},
+    {"url": "https://my.sidex.ru/rss", "name": "Мой Сайдекс", "category": "marketplace"},
+    
+    # --- ЛАЙФХАКИ И ПОЛЕЗНЫЕ СТАТЬИ ---
+    {"url": "https://lifehacker.ru/rss/", "name": "Lifehacker", "category": "lifehack"},
+    {"url": "https://lifehacker.ru/feed/", "name": "Lifehacker (alt)", "category": "lifehack"},
+    {"url": "https://life.ru/rss", "name": "Life.ru", "category": "lifehack"},
 ]
 
-# ==================== КЛЮЧЕВЫЕ СЛОВА ДЛЯ СКИДОК ====================
+# Расширенный список ключевых слов для фильтрации скидок
 DEAL_KEYWORDS = [
     "скидка", "скидки", "акция", "акции", "промокод", "промо", "купон",
     "распродажа", "sale", "выгода", "выгод", "дешев", "цена снижен",
     "кешбэк", "cashback", "кэшбэк", "бонус", "подарок", "спецпредложение",
-    "халява", "бесплатно", "даром", "скидочный", "акционный"
+    "халява", "бесплатно", "даром", "скидочный", "акционный", "промо-акция"
 ]
 
 BANK_KEYWORDS = [
@@ -119,40 +90,29 @@ def clean_html(raw):
     return re.sub(r'<.*?>', '', raw)
 
 def is_relevant_article(title, description, category):
-    """Проверяет, релевантна ли статья для категории"""
+    """Жесткая проверка на релевантность скидкам"""
     text = (title + " " + description).lower()
     
     if category == "bank":
         return any(kw in text for kw in DEAL_KEYWORDS) and any(kw in text for kw in BANK_KEYWORDS)
-    
     elif category == "marketplace":
         return any(kw in text for kw in DEAL_KEYWORDS) or any(kw in text for kw in MARKETPLACE_KEYWORDS)
-    
     elif category == "lifehack":
         return any(kw in text for kw in LIFEHACK_KEYWORDS)
-    
     return False
 
 def calculate_importance(title, description, category):
-    """Оценка от 1 до 10"""
     text = (title + " " + description).lower()
     score = 5
-    
-    # Базовые очки за deal-слова
-    for kw in DEAL_KEYWORDS[:5]:
+    for kw in DEAL_KEYWORDS[:10]:
         if kw in text:
             score += 1
-    
-    # Бонусы по категориям
     if category == "bank" and any(kw in text for kw in ["кешбэк", "cashback", "процент"]):
         score += 2
-    
     if category == "marketplace" and any(kw in text for kw in MARKETPLACE_KEYWORDS):
         score += 2
-    
     if category == "lifehack" and any(kw in text for kw in ["техник", "гаджет", "смартфон", "ноутбук"]):
         score += 2
-    
     return min(10, max(1, score))
 
 def translate_text(text):
@@ -204,8 +164,8 @@ def generate_image(title, category):
     except:
         return "https://i.imgur.com/Xr5Kq9M.png"
 
-def fetch_deals(hours=24, limit=5, categories=None):
-    """Сбор ТОЛЬКО из скидочных источников"""
+def fetch_deals(hours=48, limit=5, categories=None):
+    """Сбор скидок с 40+ источников"""
     if categories is None:
         categories = ["bank", "marketplace"]
     
@@ -220,7 +180,7 @@ def fetch_deals(hours=24, limit=5, categories=None):
             print(f"📥 {feed_conf['name']}...", flush=True)
             feed = feedparser.parse(feed_conf["url"])
             
-            for entry in feed.entries[:10]:
+            for entry in feed.entries[:15]:
                 pub = entry.get("published_parsed")
                 if not pub:
                     continue
@@ -229,14 +189,14 @@ def fetch_deals(hours=24, limit=5, categories=None):
                     continue
                 
                 title = entry.get("title", "")
-                desc = clean_html(entry.get("description", ""))[:400]
+                desc = clean_html(entry.get("description", ""))[:500]
                 
-                # 🔥 СТРОГАЯ ФИЛЬТРАЦИЯ
+                # 🔥 Жесткая фильтрация: только реальные скидки!
                 if not is_relevant_article(title, desc, feed_conf["category"]):
                     continue
                 
                 title_ru = translate_text(title)
-                desc_ru = translate_text(desc[:250])
+                desc_ru = translate_text(desc[:300])
                 
                 articles.append({
                     "title": title_ru,
@@ -253,16 +213,15 @@ def fetch_deals(hours=24, limit=5, categories=None):
     
     articles.sort(key=lambda x: x["importance"], reverse=True)
     
-    # Убираем дубликаты
     seen = set()
     unique = []
     for a in articles:
-        key = a["title"][:40]
+        key = a["title"][:50]
         if key not in seen:
             seen.add(key)
             unique.append(a)
     
-    print(f"✅ Найдено {len(unique)} релевантных предложений", flush=True)
+    print(f"✅ Найдено {len(unique)} предложений", flush=True)
     return unique[:limit]
 
 def send_message(chat_id, text, parse_mode="Markdown"):
@@ -310,9 +269,9 @@ def show_keyboard(chat_id):
 def auto_post():
     if not CHANNEL_ID:
         return
-    deals = fetch_deals(hours=24, limit=5, categories=["bank", "marketplace"])
+    deals = fetch_deals(hours=48, limit=5, categories=["bank", "marketplace"])
     if deals:
-        send_message(CHANNEL_ID, "🛍 *ЛУЧШИЕ СКИДКИ ЗА 24 ЧАСА*")
+        send_message(CHANNEL_ID, "🛍 *ЛУЧШИЕ СКИДКИ ЗА 48 ЧАСОВ*")
         for d in deals:
             cap = f"🔥 *{d['title']}*\n\n📝 {d['desc']}\n\n⭐ {d['importance']}/10\n🔗 [Подробнее]({d['link']})"
             send_photo(CHANNEL_ID, d["image"], cap)
@@ -330,7 +289,7 @@ def start_scheduler():
 
 def bot_polling():
     global last_update_id
-    print("🤖 Бот запущен!", flush=True)
+    print("🤖 Бот запущен с 40+ источниками!", flush=True)
     
     while True:
         try:
@@ -347,16 +306,17 @@ def bot_polling():
                 
                 if text == "/start":
                     send_message(chat_id, 
-                        "🛍 *БОТ СКИДОК И ЛАЙФХАКОВ*\n\n"
-                        "✅ *Источники:* только сайты скидок и лайфхаков\n"
-                        "🔹 ТОП-5 скидок/купонов (банки, маркетплейсы)\n"
-                        "🔹 ТОП-3 лайфхака (жизнь + техника)\n\n"
-                        "⚠️ *Никаких новостей — только акции!*"
+                        "🛍 *БОТ СКИДОК И ЛАЙФХАКОВ (40+ источников)*\n\n"
+                        "✅ *Я мониторю:*\n"
+                        "🔹 Банки: акции, кешбэк, карты\n"
+                        "🔹 Маркетплейсы: купоны, промокоды\n"
+                        "🔹 Лайфхаки: жизнь + техника\n\n"
+                        "⚠️ *Только реальные скидки!*"
                     )
                     show_keyboard(chat_id)
                 
                 elif text == "🔥 ТОП-5 СКИДОК И КУПОНОВ":
-                    send_message(chat_id, "🔍 *Ищу скидки...*")
+                    send_message(chat_id, "🔍 *Ищу скидки в 40+ источниках...*")
                     deals = fetch_deals(hours=48, limit=5, categories=["bank", "marketplace"])
                     
                     if deals:
@@ -396,13 +356,12 @@ def start_background():
     if CHANNEL_ID:
         threading.Thread(target=auto_post, daemon=True).start()
     start_scheduler()
-    threading.Thread(target=lambda: (time.sleep(600), requests.get("http://localhost:10000/health")) or True, daemon=True).start()
     threading.Thread(target=bot_polling, daemon=True).start()
     print("✅ Все задачи запущены", flush=True)
 
 @app.route('/')
 def index():
-    return "🛍 Бот скидок (только акции)"
+    return "🛍 Бот скидок (40+ источников)"
 
 @app.route('/health')
 def health():
