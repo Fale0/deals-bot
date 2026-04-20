@@ -1,7 +1,9 @@
-feedparser==6.0.10
-requests==2.31.0
-Flask==2.3.2
+feedparser==6.0.11
+requests>=2.32.0
+Flask>=3.0.0
 deep-translator==1.11.4
 openai==0.28.1
 APScheduler==3.10.4
-pytz==2023.3
+pytz==2024.1
+beautifulsoup4>=4.12.0
+lxml>=5.0.0
