@@ -493,3 +493,24 @@ if __name__ == "__main__":
 
     port = int(os.environ.get("PORT", 5000))
     app.run(host="0.0.0.0", port=port)
+if __name__ == "__main__":
+    # Явно указываем порт ДО всего остального
+    port = int(os.environ.get("PORT", 10000))
+    
+    # Холодный старт
+    cold_start()
+    
+    # Запуск планировщика
+    start_scheduler()
+    
+    # Auto-ping в отдельном потоке
+    ping_thread = threading.Thread(target=keep_alive, daemon=True)
+    ping_thread.start()
+    print("🟢 Auto-ping активирован (каждые 10 минут)")
+    
+    # Polling в отдельном потоке
+    bot_thread = threading.Thread(target=bot_polling, daemon=True)
+    bot_thread.start()
+    
+    # Flask запускаем с явным хостом и портом
+    app.run(host="0.0.0.0", port=port)
