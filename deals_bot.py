@@ -1,68 +1,313 @@
 import os
 import re
 import time
+import json
 import requests
 import random
+from datetime import datetime, timedelta
 from flask import Flask, request, jsonify
 import threading
+from bs4 import BeautifulSoup
+from playwright.sync_api import sync_playwright
+import openai
 
 app = Flask(__name__)
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
+DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
 last_update_id = 0
 
-# ==================== БАНКИ С АКЦИЯМИ ====================
-BANKS = [
-    {"name": "Альфа-Банк", "url": "https://alfabank.ru", "promo": "Акции с повышенным кешбэком до 10% у партнеров (Стройландия, фастфуд)", "cashback": "до 10%"},
-    {"name": "Газпромбанк", "url": "https://gazprombank.ru", "promo": "Кешбэк 35% на ежедневные траты при поддержании остатка на счёте", "cashback": "до 35%"},
-    {"name": "МТС Банк", "url": "https://mtsbank.ru", "promo": "Кешбэк за покупку ценных бумаг и инвестиционные продукты", "cashback": "до 10%"},
-    {"name": "СберБанк", "url": "https://sberbank.ru", "promo": "Бонусы Спасибо до 30% у партнеров, акции на маркетплейсах", "cashback": "до 30% бонусами"},
-    {"name": "ВТБ", "url": "https://vtb.ru", "promo": "Кешбэк до 25% в выбранных категориях", "cashback": "до 25%"},
-    {"name": "Т-Банк", "url": "https://tbank.ru", "promo": "Мультикарта с кешбэком до 5% на выбор категорий", "cashback": "до 5%"},
-    {"name": "Райффайзенбанк", "url": "https://raiffeisen.ru", "promo": "Кешбэк за коммунальные услуги и покупки у партнеров", "cashback": "до 10%"},
-    {"name": "Совкомбанк", "url": "https://sovcombank.ru", "promo": "Кешбэк баллами на всё", "cashback": "до 10%"},
-    {"name": "Почта Банк", "url": "https://pochtabank.ru", "promo": "Кешбэк за покупки у партнеров", "cashback": "до 15%"},
+# Настройка DeepSeek
+if DEEPSEEK_API_KEY:
+    openai.api_key = DEEPSEEK_API_KEY
+    openai.api_base = "https://api.deepseek.com/v1"
+    AI_AVAILABLE = True
+    print("✅ DeepSeek AI подключен")
+else:
+    AI_AVAILABLE = False
+    print("⚠️ DeepSeek API ключ не найден, AI-анализ отключён")
+
+# ==================== КОНФИГУРАЦИЯ САЙТОВ ДЛЯ ПАРСИНГА ====================
+
+# Банки и их сайты с акциями
+BANK_SITES = [
+    {
+        "name": "Альфа-Банк",
+        "url": "https://alfabank.ru/magazine/akcii",
+        "type": "static",
+        "selectors": {
+            "container": "div.offers-list__item",
+            "title": "h3",
+            "description": "div.offers-list__description",
+            "link": "a"
+        }
+    },
+    {
+        "name": "Т-Банк",
+        "url": "https://www.tbank.ru/akcii/",
+        "type": "static",
+        "selectors": {
+            "container": "div.promo-card",
+            "title": "div.promo-card__title",
+            "description": "div.promo-card__description",
+            "link": "a"
+        }
+    },
+    {
+        "name": "СберБанк",
+        "url": "https://www.sberbank.ru/ru/person/promo",
+        "type": "static",
+        "selectors": {
+            "container": "div.promo-item",
+            "title": "div.promo-item__title",
+            "description": "div.promo-item__text",
+            "link": "a"
+        }
+    }
 ]
 
-# ==================== МАРКЕТПЛЕЙСЫ И МАГАЗИНЫ ====================
-MARKETPLACES = [
-    {"name": "Ozon", "url": "https://ozon.ru", "promo": "Регулярные распродажи, промокоды на скидку", "discount": "до 70%"},
-    {"name": "Wildberries", "url": "https://wildberries.ru", "promo": "Акции, скидки, распродажи каждый день", "discount": "до 70%"},
-    {"name": "Яндекс.Маркет", "url": "https://market.yandex.ru", "promo": "Скидки, кешбэк баллами Плюса", "discount": "до 50%"},
-    {"name": "AliExpress Россия", "url": "https://aliexpress.ru", "promo": "Распродажи 11.11, купоны на скидку", "discount": "до 80%"},
-    {"name": "Ситилинк", "url": "https://citilink.ru", "promo": "Скидки на электронику и бытовую технику", "discount": "до 30%"},
-    {"name": "М.Видео", "url": "https://mvideo.ru", "promo": "Акции, кешбэк бонусами, трейд-ин", "discount": "до 25%"},
-    {"name": "Эльдорадо", "url": "https://eldorado.ru", "promo": "Скидки на технику, рассрочка 0%", "discount": "до 30%"},
-    {"name": "DNS", "url": "https://dns-shop.ru", "promo": "Распродажи, трейд-ин, скидки по карте", "discount": "до 25%"},
-    {"name": "ВсеИнструменты.ру", "url": "https://vseinstrumenti.ru", "promo": "Скидки на инструменты и стройматериалы", "discount": "до 40%"},
-    {"name": "Леруа Мерлен", "url": "https://leroymerlin.ru", "promo": "Акции на товары для дома и ремонта", "discount": "до 30%"},
-    {"name": "OBI", "url": "https://obi.ru", "promo": "Скидки на товары для дома и сада", "discount": "до 25%"},
+# Маркетплейсы
+MARKET_SITES = [
+    {
+        "name": "Ozon",
+        "url": "https://www.ozon.ru/highlight/",
+        "type": "dynamic",  # требует JS
+        "selectors": {
+            "container": "div.a9y0",
+            "title": "span.tsBodyL",
+            "link": "a"
+        }
+    },
+    {
+        "name": "Wildberries",
+        "url": "https://www.wildberries.ru/sales",
+        "type": "dynamic",
+        "selectors": {
+            "container": "div.sale-item",
+            "title": "span.goods-name",
+            "link": "a"
+        }
+    }
 ]
 
-# ==================== АГРЕГАТОРЫ КЕШБЭКА ====================
-CASHBACK_SERVICES = [
-    {"name": "LetyShops", "url": "https://letyshops.ru", "cashback": "до 30%", "note": "2000+ магазинов, вывод на карту"},
-    {"name": "ePN", "url": "https://epn.ru", "cashback": "до 25%", "note": "Кешбэк за покупки и задания"},
-    {"name": "Megabonus", "url": "https://megabonus.com", "cashback": "до 40%", "note": "Промокоды + кешбэк"},
-    {"name": "CashbackCity", "url": "https://cashbackcity.ru", "cashback": "до 50%", "note": "Высокий кешбэк у партнеров"},
-    {"name": "CopyCash", "url": "https://copycash.ru", "cashback": "до 35%", "note": "Кешбэк + промокоды"},
-    {"name": "GoHit", "url": "https://gohit.ru", "cashback": "до 30%", "note": "Быстрый вывод денег"},
+# Сервисы кешбэка
+CASHBACK_SITES = [
+    {
+        "name": "LetyShops",
+        "url": "https://letyshops.ru/best-cashback/",
+        "type": "static",
+        "selectors": {
+            "container": "div.store-item",
+            "title": "div.store-title",
+            "cashback": "span.cashback-value",
+            "link": "a"
+        }
+    }
 ]
 
-# ==================== ЛАЙФХАКИ ДЛЯ ЭКОНОМИИ ====================
+# Лайфхаки (статичные, но можно парсить с форумов)
 LIFE_HACKS = [
-    "💡 *Лайфхак:* Используйте банковский кешбэк + сервис кешбэка одновременно — получаете ДВОЙНУЮ выгоду!",
-    "💡 *Лайфхак:* Покупайте подарочные карты Ozon/WB через агрегаторы кешбэка — экономия до 20% сверху!",
-    "💡 *Лайфхак:* В Т-Банке «Мультикарта» позволяет менять категории кешбэка под ваши траты каждый месяц",
-    "💡 *Лайфхак:* В Альфа-Банке по выходным повышенный кешбэк до 10% — планируйте крупные покупки на выходные!",
-    "💡 *Лайфхак:* В Газпромбанке акция «Кешбэк 35%» — нужно поддерживать остаток на счёте, читайте условия!",
-    "💡 *Лайфхак:* Подключайте автоплатеж по кредитной карте — банки часто дают повышенный кешбэк за это!",
-    "💡 *Лайфхак:* Перед покупкой техники проверьте цены на Ситилинк, М.Видео и DNS — разница может быть 15-20%!",
-    "💡 *Лайфхак:* На AliExpress ищите товары с пометкой «Choice» — бесплатная доставка и дополнительные скидки!",
-    "💡 *Лайфхак:* В Ozon и Wildberries подписка на WB Plus/Ozon Premium окупается, если вы часто заказываете",
-    "💡 *Лайфхак:* Используйте кешбэк-сервисы даже при покупке по промокоду — кешбэк часто начисляется сверху!",
-    "💡 *Лайфхак:* В СберБанке есть акции с повышенными бонусами Спасибо у партнеров — до 30% возврата",
-    "💡 *Лайфхак:* Сравнивайте цены через Яндекс.Маркет перед покупкой — можно найти дешевле на 10-30%",
+    "💡 Используйте банковский кешбэк + сервис кешбэка одновременно — получаете ДВОЙНУЮ выгоду!",
+    "💡 Покупайте подарочные карты Ozon/WB через агрегаторы кешбэка — экономия до 20% сверху!",
+    "💡 В Т-Банке «Мультикарта» позволяет менять категории кешбэка под ваши траты каждый месяц",
+    "💡 В Альфа-Банке по выходным повышенный кешбэк до 10% — планируйте крупные покупки на выходные!",
+    "💡 В Газпромбанке акция «Кешбэк 35%» — нужно поддерживать остаток на счёте, читайте условия!",
+    "💡 Подключайте автоплатеж по кредитной карте — банки часто дают повышенный кешбэк за это!",
+    "💡 Перед покупкой техники проверьте цены на Ситилинк, М.Видео и DNS — разница может быть 15-20%!",
+    "💡 На AliExpress ищите товары с пометкой «Choice» — бесплатная доставка и дополнительные скидки!",
 ]
+
+# ==================== ФУНКЦИИ ПАРСИНГА ====================
+
+def scrape_static_site(url, selectors):
+    """Парсит статический HTML-сайт с помощью requests + BeautifulSoup"""
+    try:
+        headers = {'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36'}
+        response = requests.get(url, timeout=30, headers=headers)
+        response.raise_for_status()
+        
+        soup = BeautifulSoup(response.text, 'lxml')
+        items = soup.select(selectors.get("container", ""))
+        
+        results = []
+        for item in items[:10]:  # ограничиваем количество
+            title_elem = item.select_one(selectors.get("title", ""))
+            desc_elem = item.select_one(selectors.get("description", "")) if "description" in selectors else None
+            link_elem = item.select_one(selectors.get("link", ""))
+            
+            title = title_elem.get_text(strip=True) if title_elem else "Без названия"
+            description = desc_elem.get_text(strip=True)[:300] if desc_elem else ""
+            link = link_elem.get('href') if link_elem else url
+            if link and not link.startswith('http'):
+                link = url.rstrip('/') + '/' + link.lstrip('/')
+            
+            results.append({
+                "title": title,
+                "description": description,
+                "link": link,
+                "source": url
+            })
+        return results
+    except Exception as e:
+        print(f"Ошибка парсинга {url}: {e}")
+        return []
+
+def scrape_dynamic_site(url, selectors):
+    """Парсит динамический сайт (с JavaScript) через Playwright"""
+    try:
+        with sync_playwright() as p:
+            browser = p.chromium.launch(headless=True)
+            page = browser.new_page()
+            page.goto(url, timeout=30000)
+            page.wait_for_timeout(3000)  # ждём загрузки
+            
+            items = page.query_selector_all(selectors.get("container", ""))
+            
+            results = []
+            for item in items[:10]:
+                title_elem = item.query_selector(selectors.get("title", ""))
+                link_elem = item.query_selector(selectors.get("link", ""))
+                
+                title = title_elem.inner_text() if title_elem else "Без названия"
+                link = link_elem.get_attribute('href') if link_elem else url
+                if link and not link.startswith('http'):
+                    link = url.rstrip('/') + '/' + link.lstrip('/')
+                
+                results.append({
+                    "title": title,
+                    "description": "",
+                    "link": link,
+                    "source": url
+                })
+            
+            browser.close()
+            return results
+    except Exception as e:
+        print(f"Ошибка парсинга {url}: {e}")
+        return []
+
+def parse_with_ai(raw_text, source_name):
+    """Использует DeepSeek для извлечения структурированной информации из сырого текста"""
+    if not AI_AVAILABLE:
+        return raw_text[:500]
+    
+    try:
+        prompt = f"""Извлеки из этого текста информацию об акции или скидке от {source_name}.
+Верни ТОЛЬКО JSON без пояснений в формате:
+{{"title": "краткий заголовок", "discount": "размер скидки/кешбэка", "valid_until": "срок действия", "conditions": "условия получения", "link": "ссылка"}}
+
+Текст: {raw_text[:1500]}"""
+        
+        response = openai.ChatCompletion.create(
+            model="deepseek-chat",
+            messages=[{"role": "user", "content": prompt}],
+            temperature=0.3,
+            max_tokens=300
+        )
+        result = response.choices[0].message.content
+        # Пытаемся распарсить JSON
+        json_match = re.search(r'\{.*\}', result, re.DOTALL)
+        if json_match:
+            return json.loads(json_match.group())
+        return {"error": "Не удалось распарсить", "raw": result}
+    except Exception as e:
+        print(f"AI ошибка: {e}")
+        return {"error": str(e), "raw": raw_text[:300]}
+
+# ==================== СБОР ВСЕХ АКЦИЙ ====================
+
+def collect_all_discounts():
+    """Собирает акции со всех настроенных сайтов"""
+    all_offers = []
+    
+    # Парсим банки
+    for bank in BANK_SITES:
+        print(f"Парсим {bank['name']}...")
+        if bank["type"] == "static":
+            items = scrape_static_site(bank["url"], bank["selectors"])
+        else:
+            items = scrape_dynamic_site(bank["url"], bank["selectors"])
+        
+        for item in items:
+            # Формируем текст для AI-анализа
+            raw_text = f"{item['title']}\n{item['description']}\n{item['link']}"
+            ai_data = parse_with_ai(raw_text, bank["name"])
+            
+            all_offers.append({
+                "source_type": "bank",
+                "source_name": bank["name"],
+                "title": item["title"],
+                "description": item["description"][:300],
+                "link": item["link"],
+                "ai_analysis": ai_data
+            })
+        time.sleep(1)  # пауза между запросами
+    
+    # Парсим маркетплейсы
+    for market in MARKET_SITES:
+        print(f"Парсим {market['name']}...")
+        if market["type"] == "static":
+            items = scrape_static_site(market["url"], market["selectors"])
+        else:
+            items = scrape_dynamic_site(market["url"], market["selectors"])
+        
+        for item in items:
+            all_offers.append({
+                "source_type": "marketplace",
+                "source_name": market["name"],
+                "title": item["title"],
+                "description": item["description"][:300] if item["description"] else "Скидка на товары",
+                "link": item["link"],
+                "ai_analysis": {}
+            })
+        time.sleep(1)
+    
+    return all_offers
+
+def format_offers_message(offers, limit=10):
+    """Форматирует собранные предложения для отправки в Telegram"""
+    if not offers:
+        return "😕 Активных акций и скидок не найдено.\n\nПопробуйте позже или проверьте источники."
+    
+    result = "🛍️ *АКТУАЛЬНЫЕ АКЦИИ И СКИДКИ* 🛍️\n\n"
+    result += f"📅 Обновлено: {datetime.now().strftime('%d.%m.%Y %H:%M')} (МСК)\n"
+    result += f"📊 Найдено предложений: {len(offers)}\n\n"
+    result += "━" * 20 + "\n\n"
+    
+    for i, offer in enumerate(offers[:limit], 1):
+        # Иконка в зависимости от источника
+        if offer["source_type"] == "bank":
+            icon = "🏦"
+        elif offer["source_type"] == "marketplace":
+            icon = "🛒"
+        else:
+            icon = "💰"
+        
+        result += f"{icon} *{i}. {offer['source_name']}*\n"
+        result += f"📌 *{offer['title'][:80]}*\n"
+        
+        # Добавляем AI-анализ если есть
+        if offer.get("ai_analysis") and isinstance(offer["ai_analysis"], dict):
+            if "discount" in offer["ai_analysis"] and offer["ai_analysis"]["discount"]:
+                result += f"💰 Скидка: {offer['ai_analysis']['discount']}\n"
+            if "valid_until" in offer["ai_analysis"] and offer["ai_analysis"]["valid_until"]:
+                result += f"⏰ Действует до: {offer['ai_analysis']['valid_until']}\n"
+            if "conditions" in offer["ai_analysis"] and offer["ai_analysis"]["conditions"]:
+                result += f"📋 Условия: {offer['ai_analysis']['conditions'][:100]}\n"
+        else:
+            if offer["description"]:
+                result += f"📝 {offer['description'][:100]}\n"
+        
+        result += f"🔗 [Подробнее]({offer['link']})\n\n"
+        result += "─" * 15 + "\n\n"
+    
+    result += "\n💡 *Совет:* Используйте кешбэк-сервисы поверх этих скидок!\n"
+    result += "📌 Обновляйте список командой /discounts"
+    
+    return result
+
+def get_life_hack():
+    """Возвращает случайный лайфхак"""
+    return random.choice(LIFE_HACKS)
 
 # ==================== ФУНКЦИИ БОТА ====================
 
@@ -79,83 +324,55 @@ def send_message(chat_id, text, parse_mode="Markdown"):
     except Exception as e:
         print(f"Ошибка отправки: {e}")
 
-def get_banks_info():
-    """Формирует информацию о банковских акциях"""
-    result = "🏦 *Банковские акции и кешбэк*\n\n"
-    for bank in BANKS:
-        result += f"🏛️ *{bank['name']}*\n"
-        result += f"   📌 {bank['promo']}\n"
-        result += f"   💰 Кешбэк: {bank['cashback']}\n"
-        result += f"   🔗 [Перейти]({bank['url']})\n\n"
-    return result
-
-def get_marketplaces_info():
-    """Формирует информацию о скидках в магазинах"""
-    result = "🛍️ *Скидки и распродажи на маркетплейсах*\n\n"
-    for mp in MARKETPLACES:
-        result += f"📦 *{mp['name']}*\n"
-        result += f"   📌 {mp['promo']}\n"
-        result += f"   🔥 Скидка: {mp['discount']}\n"
-        result += f"   🔗 [Перейти]({mp['url']})\n\n"
-    return result
-
-def get_cashback_info():
-    """Формирует информацию о сервисах кешбэка"""
-    result = "💰 *Сервисы дополнительного кешбэка*\n\n"
-    result += "🔔 *Как работают:* переходите в магазин по их ссылке и получаете кешбэк СВЕРХ банковского!\n\n"
-    for cs in CASHBACK_SERVICES:
-        result += f"⭐ *{cs['name']}*\n"
-        result += f"   📊 Кешбэк: {cs['cashback']}\n"
-        result += f"   📝 {cs['note']}\n"
-        result += f"   🔗 [Перейти]({cs['url']})\n\n"
-    return result
-
-def get_all_discounts():
-    """Собирает всю информацию о скидках и акциях"""
-    result = "🛍️ *ВСЕ АКЦИИ И СКИДКИ*\n\n"
-    result += get_banks_info()
-    result += get_marketplaces_info()
-    result += get_cashback_info()
-    return result
-
-def get_life_hack():
-    """Возвращает случайный лайфхак"""
-    return random.choice(LIFE_HACKS)
+def send_long_message(chat_id, text):
+    """Отправляет длинные сообщения по частям"""
+    if len(text) < 4000:
+        send_message(chat_id, text)
+        return
+    
+    parts = [text[i:i+4000] for i in range(0, len(text), 4000)]
+    for i, part in enumerate(parts, 1):
+        send_message(chat_id, f"📄 *Часть {i}*\n\n{part}")
 
 def show_keyboard(chat_id):
-    """Показывает клавиатуру с кнопками"""
     keyboard = {
         "keyboard": [
-            ["🏦 Акции банков", "🛍️ Скидки в магазинах"],
-            ["💰 Сервисы кешбэка", "💡 Лайфхак дня"],
-            ["📋 Все акции сразу"]
+            ["🛍️ Актуальные скидки", "💡 Лайфхак дня"],
+            ["🏦 Акции банков", "🛒 Скидки в магазинах"],
+            ["🔄 Обновить данные"]
         ],
         "resize_keyboard": True
     }
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
     payload = {
         "chat_id": chat_id,
-        "text": "📱 *Выбери, что тебя интересует:*",
+        "text": "📱 *Выбери действие:*",
         "reply_markup": keyboard,
         "parse_mode": "Markdown"
     }
     requests.post(url, json=payload)
 
-def keep_alive():
-    """Авто-пинг каждые 10 минут, чтобы бот не засыпал"""
-    bot_url = f"https://crypto-news-bot-v7aj.onrender.com/health"
-    while True:
-        time.sleep(10 * 60)
-        try:
-            response = requests.get(bot_url, timeout=10)
-            print(f"🔄 Auto-ping: статус {response.status_code}")
-        except Exception as e:
-            print(f"❌ Auto-ping ошибка: {e}")
+# Кеш для собранных скидок (чтобы не парсить каждый раз)
+discounts_cache = {
+    "data": [],
+    "last_update": None
+}
+
+def get_cached_discounts(force_refresh=False):
+    """Возвращает кешированные скидки или парсит заново"""
+    if force_refresh or not discounts_cache["data"] or \
+       (datetime.now() - discounts_cache["last_update"]).seconds > 3600:
+        print("🔄 Обновляем кеш скидок...")
+        send_message(ADMIN_CHAT_ID, "🔄 Начинаю сбор актуальных скидок с сайтов...") if 'ADMIN_CHAT_ID' in dir() else None
+        discounts_cache["data"] = collect_all_discounts()
+        discounts_cache["last_update"] = datetime.now()
+        print(f"✅ Собрано {len(discounts_cache['data'])} предложений")
+    return discounts_cache["data"]
 
 def bot_polling():
     global last_update_id
-    print("✅ Бот скидок и акций запущен!")
-    print("📌 Команды: /start, /banks, /shops, /cashback, /hack, /alldiscounts")
+    print("✅ Бот-агрегатор скидок запущен!")
+    print("📌 Команды: /start, /discounts, /banks, /shops, /hack")
     
     while True:
         try:
@@ -169,70 +386,90 @@ def bot_polling():
                 chat_id = msg.get("chat", {}).get("id")
                 text = msg.get("text", "")
                 
-                # Обработка команд и кнопок
                 if text == "/start":
                     welcome = (
-                        "💰 *Бот скидок, акций и кешбэка* 💰\n\n"
+                        "💰 *Бот-агрегатор скидок и акций* 💰\n\n"
                         "📊 *Что я умею:*\n"
-                        "• 🏦 Акции банков с кешбэком до 35%\n"
-                        "• 🛍️ Скидки на маркетплейсах до 70%\n"
-                        "• 💰 Сервисы дополнительного кешбэка\n"
-                        "• 💡 Лайфхаки для экономии денег\n\n"
+                        "• 🔍 Реально паршу сайты банков и магазинов\n"
+                        "• 🧠 Анализирую акции через DeepSeek AI\n"
+                        "• 💡 Делюсь лайфхаками экономии\n\n"
                         "📌 *Команды:*\n"
-                        "• `/banks` — акции банков\n"
-                        "• `/shops` — скидки в магазинах\n"
-                        "• `/cashback` — сервисы кешбэка\n"
+                        "• `/discounts` — все актуальные скидки\n"
+                        "• `/banks` — только акции банков\n"
+                        "• `/shops` — только скидки в магазинах\n"
                         "• `/hack` — лайфхак дня\n"
-                        "• `/alldiscounts` — все акции сразу\n\n"
-                        "💡 *Главный совет:*\n"
-                        "Используйте банковский кешбэк + сервис кешбэка вместе — получаете ДВОЙНУЮ выгоду!\n\n"
+                        "• `/refresh` — принудительно обновить данные\n\n"
+                        "⚡ *Внимание:* Данные собираются в реальном времени!\n"
+                        "🕒 Обновление кеша: раз в час\n\n"
                         "👇 Нажми на кнопки ниже!"
                     )
                     send_message(chat_id, welcome)
                     show_keyboard(chat_id)
                 
+                elif text in ["/discounts", "🛍️ Актуальные скидки"]:
+                    send_message(chat_id, "🔍 Собираю актуальные скидки с сайтов...\n⏳ Обычно занимает 10-20 секунд")
+                    offers = get_cached_discounts()
+                    message = format_offers_message(offers, 15)
+                    send_long_message(chat_id, message)
+                
                 elif text in ["/banks", "🏦 Акции банков"]:
-                    info = get_banks_info()
-                    send_message(chat_id, info)
+                    send_message(chat_id, "🏦 Собираю акции банков...")
+                    offers = get_cached_discounts()
+                    bank_offers = [o for o in offers if o["source_type"] == "bank"]
+                    message = format_offers_message(bank_offers, 10)
+                    send_long_message(chat_id, message)
                 
-                elif text in ["/shops", "🛍️ Скидки в магазинах"]:
-                    info = get_marketplaces_info()
-                    send_message(chat_id, info)
-                
-                elif text in ["/cashback", "💰 Сервисы кешбэка"]:
-                    info = get_cashback_info()
-                    send_message(chat_id, info)
+                elif text in ["/shops", "🛒 Скидки в магазинах"]:
+                    send_message(chat_id, "🛒 Собираю скидки на маркетплейсах...")
+                    offers = get_cached_discounts()
+                    shop_offers = [o for o in offers if o["source_type"] == "marketplace"]
+                    message = format_offers_message(shop_offers, 10)
+                    send_long_message(chat_id, message)
                 
                 elif text in ["/hack", "💡 Лайфхак дня"]:
                     hack = get_life_hack()
-                    send_message(chat_id, hack)
+                    send_message(chat_id, f"{hack}\n\n💡 Ещё лайфхаки по команде /hack")
                 
-                elif text in ["/alldiscounts", "📋 Все акции сразу"]:
-                    info = get_all_discounts()
-                    send_message(chat_id, info)
+                elif text in ["/refresh", "🔄 Обновить данные"]:
+                    send_message(chat_id, "🔄 Принудительно обновляю данные с сайтов...\n⏳ Это может занять 20-30 секунд")
+                    offers = get_cached_discounts(force_refresh=True)
+                    message = format_offers_message(offers, 10)
+                    send_long_message(chat_id, message)
                 
                 elif text == "/health":
-                    send_message(chat_id, "✅ Бот работает! Авто-пинг активен.\n💰 Экономьте с умом!")
+                    status = f"✅ Бот работает!\n📊 В кеше: {len(discounts_cache['data'])} предложений\n🕒 Последнее обновление: {discounts_cache['last_update']}"
+                    send_message(chat_id, status)
                 
         except Exception as e:
             print(f"Ошибка в polling: {e}")
             time.sleep(5)
 
+def keep_alive():
+    """Авто-пинг каждые 10 минут"""
+    bot_url = f"https://crypto-news-bot-v7aj.onrender.com/health"
+    while True:
+        time.sleep(10 * 60)
+        try:
+            response = requests.get(bot_url, timeout=10)
+            print(f"🔄 Auto-ping: статус {response.status_code}")
+        except Exception as e:
+            print(f"❌ Auto-ping ошибка: {e}")
+
 @app.route('/')
 def index():
-    return "💰 Бот скидок, акций и кешбэка работает!"
+    return "💰 Бот-агрегатор скидок и акций работает!"
 
 @app.route('/health')
 def health():
     return "OK", 200
 
 if __name__ == "__main__":
-    # Запускаем авто-пинг (чтобы бот не засыпал)
+    ADMIN_CHAT_ID = os.environ.get("ADMIN_CHAT_ID")  # опционально
+    
     ping_thread = threading.Thread(target=keep_alive, daemon=True)
     ping_thread.start()
     print("🟢 Auto-ping активирован (каждые 10 минут)")
     
-    # Запускаем бота
     bot_thread = threading.Thread(target=bot_polling, daemon=True)
     bot_thread.start()
     
