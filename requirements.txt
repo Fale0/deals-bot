@@ -1,7 +1,5 @@
+feedparser==6.0.11
 requests==2.31.0
 flask==2.3.3
-beautifulsoup4==4.12.3
-lxml==5.1.0
+deep-translator==1.11.4
 openai==0.28.1
-playwright==1.40.0
-pymongo==4.6.1  # опционально, для хранения
