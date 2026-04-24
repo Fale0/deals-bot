@@ -53,25 +53,26 @@ REQUEST_HEADERS = {
 # ==================== ИСТОЧНИКИ ====================
 MEDICAL_FEEDS = [
     ("WHO News", "https://www.who.int/rss-feeds/news-english.xml"),
-    ("NIH News", "https://www.nih.gov/news-events/news-releases/feed"),
     ("Nature Medicine", "https://www.nature.com/subjects/medical-research.rss"),
-    ("ScienceDaily Health", "https://www.sciencedaily.com/rss/health_medicine/all.xml"),
-    ("News-Medical", "https://www.news-medical.net/medical-news.aspx?format=rss"),
+    ("NIH News Releases", "https://www.nih.gov/news-events/news-releases/feed"),
+    ("ScienceDaily Health", "https://www.sciencedaily.com/rss/health_medicine.xml"),
     ("Medical News Today", "https://www.medicalnewstoday.com/feeds/all"),
+    ("News-Medical.net", "https://www.news-medical.net/medical-news.aspx?format=rss"),
     ("EurekAlert Medicine", "https://www.eurekalert.org/rss/medicine.xml"),
-    ("The Lancet", "https://www.thelancet.com/rss"),
+    ("The Lancet Global Health", "https://www.thelancet.com/rss/global-health"),
+    ("New England Journal of Medicine", "https://www.nejm.org/action/showFeed?type=etoc&feed=rss&jc=nejm"),
     ("NEJM", "https://www.nejm.org/rss"),
 ]
 
 COSMETOLOGY_FEEDS = [
-    ("News-Medical Cosmetics", "https://www.news-medical.net/medical-news.aspx?category=Cosmetic-Medicine&format=rss"),
-    ("CosmeticsDesign Europe", "https://www.cosmeticsdesign-europe.com/RSS"),
-    ("CosmeticsDesign Asia", "https://www.cosmeticsdesign-asia.com/RSS"),
-    ("Happi Magazine", "https://www.happi.com/rss"),
-    ("Personal Care Magazine", "https://www.personalcaremagazine.com/rss-news"),
     ("Dermascope", "https://www.dermascope.com/feed"),
-    ("Cosmetics Business", "https://www.cosmeticsbusiness.com/rss/news"),
-    ("ScienceDaily Matter & Energy", "https://www.sciencedaily.com/rss/matter_energy/cosmetics.xml"),
+    ("Aesthetic Medicine", "https://aestheticmed.co.uk/feed"),
+    ("Global Cosmetics News", "https://www.globalcosmeticsnews.com/feed/"),
+    ("Cosmetics & Toiletries", "https://www.cosmeticsandtoiletries.com/rss"),
+    ("Professional Beauty", "https://www.professionalbeauty.com.uk/feed"),
+    ("NewBeauty", "https://www.newbeauty.com/feed/"),
+    ("Skin Inc.", "https://www.skininc.com/rss/"),
+    ("Well+Good Beauty", "https://www.wellandgood.com/beauty/feed"),
 ]
 
 # ============ Вспомогательные функции ============
@@ -192,23 +193,25 @@ def get_ai_image(title: str, category: str) -> str | None:
         return None
 
 def get_news_image(title: str, link: str, category: str) -> str:
-    """
-    1. Пробуем взять реальное изображение из статьи.
-    2. Если нет – пытаемся AI‑генерацию.
-    3. Если и это не вышло – fallback на сток.
-    """
-    # Попытка извлечь из статьи (самый приоритет)
+    # 1. Реальная картинка из статьи
     real_img = extract_image_from_article(link)
-    if real_img:
+    if real_img and _is_url_accessible(real_img):
         return real_img
 
-    # AI генерация (может не работать, тогда None)
+    # 2. Пробуем AI (только если не получилось реальное)
     ai_img = get_ai_image(title, category)
-    if ai_img:
+    if ai_img and _is_url_accessible(ai_img):
         return ai_img
 
-    # Fallback – случайное стоковое
+    # 3. Гарантированный fallback – сток
     return get_fallback_image(category)
+
+def _is_url_accessible(url: str, timeout: int = 3) -> bool:
+    try:
+        resp = requests.head(url, timeout=timeout, headers=REQUEST_HEADERS)
+        return resp.status_code == 200
+    except Exception:
+        return False
 
 def parse_entry(entry, cutoff_utc: datetime) -> dict | None:
     """Обрабатывает одну запись RSS, возвращает словарь или None."""
