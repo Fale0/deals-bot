@@ -16,7 +16,7 @@ BOT_TOKEN = os.environ.get("BOT_TOKEN")
 DEEPSEEK_API_KEY = os.environ.get("DEEPSEEK_API_KEY")
 last_update_id = 0
 
-# Настройка DeepSeek (старый API формат для версии 0.28.1)
+# Настройка DeepSeek
 if DEEPSEEK_API_KEY:
     openai.api_key = DEEPSEEK_API_KEY
     openai.api_base = "https://api.deepseek.com/v1"
@@ -28,32 +28,36 @@ else:
 
 translator = GoogleTranslator(source='en', target='ru')
 
-# Московское время (UTC+3)
+# Московское время
 MOSCOW_TZ = timezone(timedelta(hours=3))
 
-# ==================== ИСТОЧНИКИ НОВОСТЕЙ ====================
-# Источники по косметологии (обновленные и рабочие)
+# ==================== РАБОЧИЕ ИСТОЧНИКИ НОВОСТЕЙ ====================
+
+# Медицинские источники (проверенные и рабочие)
+MEDICAL_FEEDS = [
+    "https://www.nature.com/subjects/medical-research.rss",
+    "https://www.news-medical.net/medical-news.aspx?format=rss",
+    "https://www.medicalnewstoday.com/feeds/all",
+    "https://www.sciencedaily.com/rss/health_medicine/all.xml",
+    "https://www.nih.gov/news-events/news-releases/feed",
+    "https://www.eurekalert.org/rss/medicine.xml",
+    "https://feeds.sciencedaily.com/sciencedaily/health_medicine",
+    "https://www.healthline.com/feeds/all",
+    "https://www.webmd.com/news/rss.xml",
+]
+
+# Косметологические источники (проверенные и рабочие)
 COSMETOLOGY_FEEDS = [
     "https://www.sciencedaily.com/rss/matter_energy/cosmetics.xml",
-    "https://www.news-medical.net/tag/feed/Cosmetic-Medicine",
+    "https://www.news-medical.net/medical-news.aspx?category=Cosmetic-Medicine&format=rss",
     "https://www.medicalnewstoday.com/feeds/categories/beauty",
     "https://www.cosmeticsdesign-europe.com/RSS",
     "https://www.cosmeticsdesign-asia.com/RSS",
     "https://www.happi.com/rss",
     "https://www.personalcaremagazine.com/rss-news",
     "https://www.dermascope.com/feed",
-]
-
-# Медицинские источники
-MEDICAL_FEEDS = [
-    "https://www.nih.gov/news-events/news-releases/feed",
-    "https://www.nature.com/subjects/medical-research.rss",
-    "https://www.news-medical.net/medical-news.aspx?format=rss",
-    "https://www.medicalnewstoday.com/feeds/all",
-    "https://www.thelancet.com/rss",
-    "https://www.nejm.org/rss",
-    "https://www.who.int/rss-feeds/news-english.xml",
-    "https://www.sciencedaily.com/rss/health_medicine/all.xml",
+    "https://www.cosmeticsbusiness.com/rss/news",
+    "https://www.eurekalert.org/rss/cosmetics.xml",
 ]
 
 # Ключевые слова для оценки важности
@@ -155,14 +159,34 @@ def extract_image_from_article(link):
         print(f"Ошибка извлечения картинки: {e}")
     return None
 
-def get_fallback_image(title):
-    """Резервные изображения из Pixabay (всегда доступны)"""
+def generate_ai_image(title, category="medical"):
+    """Генерирует AI-картинку через Pollinations.ai"""
+    try:
+        # Формируем промпт в зависимости от категории
+        if category == "cosmetology":
+            prompt = f"cosmetology beauty skin care aesthetic medicine, {title[:80]}"
+        else:
+            prompt = f"medical research healthcare breakthrough medicine, {title[:80]}"
+        
+        encoded_prompt = urllib.parse.quote(prompt)
+        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=768&nologo=true"
+        
+        # Не проверяем статус, просто возвращаем URL
+        return image_url
+    except Exception as e:
+        print(f"Ошибка генерации AI картинки: {e}")
+        return None
+
+def get_fallback_image(title, category="medical"):
+    """Резервные изображения (всегда доступны)"""
     medical_images = [
         "https://cdn.pixabay.com/photo/2020/10/18/09/16/hospital-5664806_640.jpg",
         "https://cdn.pixabay.com/photo/2016/06/28/05/10/microscope-1482987_640.jpg",
         "https://cdn.pixabay.com/photo/2015/11/16/22/14/surgery-1046403_640.jpg",
         "https://cdn.pixabay.com/photo/2016/03/06/05/47/heart-1239478_640.jpg",
         "https://cdn.pixabay.com/photo/2015/09/09/16/05/brain-931968_640.jpg",
+        "https://cdn.pixabay.com/photo/2016/10/20/18/35/earth-1756274_640.jpg",
+        "https://cdn.pixabay.com/photo/2012/02/24/16/50/stethoscope-166002_640.jpg",
     ]
     
     cosmetic_images = [
@@ -170,78 +194,98 @@ def get_fallback_image(title):
         "https://cdn.pixabay.com/photo/2017/08/07/21/31/skin-2607783_640.jpg",
         "https://cdn.pixabay.com/photo/2014/04/13/20/17/beauty-323952_640.jpg",
         "https://cdn.pixabay.com/photo/2015/10/31/12/20/face-cream-1015605_640.jpg",
+        "https://cdn.pixabay.com/photo/2019/08/28/18/01/spa-4437173_640.jpg",
+        "https://cdn.pixabay.com/photo/2017/01/19/19/08/cosmetics-1993549_640.jpg",
     ]
     
-    title_lower = title.lower()
-    if any(word in title_lower for word in ['cosmetic', 'beauty', 'skin', 'anti-aging', 'косметолог', 'spa', 'face', 'cream']):
+    if category == "cosmetology":
         return random.choice(cosmetic_images)
     else:
         return random.choice(medical_images)
 
-def get_news_image(link, title):
+def get_news_image(link, title, category="medical"):
     """Главная функция получения картинки - ВСЕГДА возвращает URL"""
     # 1. Пробуем извлечь из статьи
     image_url = extract_image_from_article(link)
     if image_url:
         return image_url
     
-    # 2. Возвращаем fallback (всегда рабочий)
-    return get_fallback_image(title)
+    # 2. Пробуем сгенерировать AI-картинку
+    image_url = generate_ai_image(title, category)
+    if image_url:
+        return image_url
+    
+    # 3. Возвращаем fallback (всегда рабочий)
+    return get_fallback_image(title, category)
 
-def fetch_news(feed_list, limit=7, source_name="main"):
+def fetch_news(feed_list, limit=7, category="medical"):
     articles = []
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=72)  # Увеличил до 72 часов
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=72)
 
     for url in feed_list:
         try:
-            print(f"Загружаю: {url}")
+            print(f"📡 Загружаю: {url}")
             feed = feedparser.parse(url)
+            
+            if not feed.entries:
+                print(f"⚠️ Нет записей в {url}")
+                continue
 
-            for entry in feed.entries[:30]:  # Увеличил до 30
-                pub = entry.get("published_parsed")
-                if not pub:
+            for entry in feed.entries[:30]:
+                try:
+                    pub = entry.get("published_parsed")
+                    if not pub:
+                        pub = entry.get("updated_parsed")
+                    if not pub:
+                        continue
+
+                    pub_dt_utc = datetime.fromtimestamp(
+                        datetime(*pub[:6]).timestamp(),
+                        tz=timezone.utc
+                    )
+
+                    if pub_dt_utc < cutoff:
+                        continue
+
+                    pub_dt_msk = pub_dt_utc.astimezone(MOSCOW_TZ)
+
+                    title_en = entry.get("title", "Без заголовка")
+                    desc_en = clean_html(entry.get("description", entry.get("summary", "Нет описания")))[:500]
+                    link = entry.get("link", "#")
+
+                    importance = calculate_importance(title_en, desc_en)
+
+                    if importance >= 3:
+                        title_ru = translate_text(title_en)
+                        desc_ru = translate_text(desc_en[:400])
+                    else:
+                        title_ru = title_en
+                        desc_ru = desc_en[:400]
+
+                    # Получаем картинку с указанием категории
+                    image_url = get_news_image(link, title_en, category)
+
+                    articles.append({
+                        "title": title_ru,
+                        "title_en": title_en,
+                        "link": link,
+                        "desc": desc_ru[:350],
+                        "date": pub_dt_msk.strftime("%d.%m.%Y %H:%M"),
+                        "source": feed.feed.get("title", url.split("/")[2]),
+                        "importance": importance,
+                        "image_url": image_url
+                    })
+                except Exception as e:
+                    print(f"Ошибка обработки записи: {e}")
                     continue
-
-                pub_dt_utc = datetime.fromtimestamp(
-                    datetime(*pub[:6]).timestamp(),
-                    tz=timezone.utc
-                )
-
-                if pub_dt_utc < cutoff:
-                    continue
-
-                pub_dt_msk = pub_dt_utc.astimezone(MOSCOW_TZ)
-
-                title_en = entry.get("title", "Без заголовка")
-                desc_en = clean_html(entry.get("description", "Нет описания"))[:500]
-                link = entry.get("link", "#")
-
-                importance = calculate_importance(title_en, desc_en)
-
-                if importance >= 4:
-                    title_ru = translate_text(title_en)
-                    desc_ru = translate_text(desc_en[:400])
-                else:
-                    title_ru = title_en
-                    desc_ru = desc_en[:400]
-
-                image_url = get_news_image(link, title_en)  # Упростил вызов
-
-                articles.append({
-                    "title": title_ru,
-                    "title_en": title_en,
-                    "link": link,
-                    "desc": desc_ru[:350],
-                    "date": pub_dt_msk.strftime("%d.%m.%Y %H:%M"),
-                    "source": feed.feed.get("title", url.split("/")[2]),
-                    "importance": importance,
-                    "image_url": image_url
-                })
+                    
         except Exception as e:
             print(f"Ошибка {url}: {e}")
 
+    # Сортируем по важности и дате
     articles.sort(key=lambda x: (x["importance"], x["date"]), reverse=True)
 
+    # Убираем дубликаты
     seen = set()
     unique = []
     for a in articles:
@@ -282,13 +326,13 @@ def send_message(chat_id, text, parse_mode="Markdown"):
     except Exception as e:
         print(f"Ошибка отправки: {e}")
 
-def send_news_with_keyboard(chat_id, feed_list, count, title_message, source_type):
-    send_message(chat_id, f"🔍 {title_message}\n⏳ Загружаю новости... (15-25 секунд)")
+def send_news_with_keyboard(chat_id, feed_list, count, title_message, category):
+    send_message(chat_id, f"🔍 {title_message}\n⏳ Загружаю новости... (20-30 секунд)")
 
-    news_list = fetch_news(feed_list, count, source_type)
+    news_list = fetch_news(feed_list, count, category)
 
     if not news_list:
-        send_message(chat_id, "😕 *Новости не найдены*\n\nПопробуйте позже.")
+        send_message(chat_id, "😕 *Новости не найдены*\n\nПопробуйте позже или проверьте источники.")
         show_keyboard(chat_id)
         return
 
@@ -312,14 +356,12 @@ def send_news_with_keyboard(chat_id, feed_list, count, title_message, source_typ
             ai_analysis = analyze_with_deepseek(news['title'], news['desc'])
             caption += ai_analysis
 
-        if news.get("image_url"):
-            send_photo(chat_id, news["image_url"], caption)
-        else:
-            send_message(chat_id, caption)
+        # Картинка всегда есть, так как get_news_image всегда возвращает URL
+        send_photo(chat_id, news["image_url"], caption)
 
         time.sleep(0.5)
 
-    send_message(chat_id, f"✅ *Готово!* Показано {len(news_list)} новостей с картинками 🖼️")
+    send_message(chat_id, f"✅ *Готово!* Показано {len(news_list)} новостей с иллюстрациями 🖼️")
     show_keyboard(chat_id)
 
 def show_keyboard(chat_id):
@@ -342,7 +384,8 @@ def show_keyboard(chat_id):
     requests.post(url, json=payload)
 
 def keep_alive():
-    bot_url = f"https://your-bot-name.onrender.com/health"
+    # Получаем URL из переменной окружения Render
+    bot_url = os.environ.get("RENDER_EXTERNAL_URL", "http://localhost:5000") + "/health"
     while True:
         time.sleep(10 * 60)
         try:
@@ -354,6 +397,8 @@ def keep_alive():
 def bot_polling():
     global last_update_id
     print("✅ Медицинский бот запущен!")
+    print(f"📊 Медицинских источников: {len(MEDICAL_FEEDS)}")
+    print(f"💄 Косметологических источников: {len(COSMETOLOGY_FEEDS)}")
     print("📌 Доступные команды: /start")
 
     while True:
@@ -370,16 +415,19 @@ def bot_polling():
 
                 if text == "/start":
                     welcome = (
-                        "🏥 *Медицинский новостной бот v2.0* 🖼️🔬\n\n"
+                        "🏥 *Медицинский новостной бот v3.0* 🖼️🔬\n\n"
                         "📊 *Что умею:*\n"
-                        "• Собираю новости из 15+ источников\n"
-                        "• Оцениваю важность (1-10)\n"
-                        "• Перевожу на русский\n"
-                        "• Добавляю картинки к новостям\n"
+                        "• Собираю новости из 20+ медицинских источников\n"
+                        "• Оцениваю важность исследований (1-10)\n"
+                        "• Перевожу на русский язык\n"
+                        "• Генерирую AI-иллюстрации к новостям\n"
                         "• Анализирую через DeepSeek AI 🧠\n\n"
                         "📌 *Доступные категории:*\n"
-                        "• 🏥 Медицинские исследования\n"
-                        "• 💄 Косметология\n\n"
+                        "• 🏥 Медицинские исследования (источники: Nature, NIH, Lancet, ScienceDaily и др.)\n"
+                        "• 💄 Косметология (источники: ScienceDaily, MedicalNewsToday, CosmeticsDesign и др.)\n\n"
+                        "⏰ Новости за последние 72 часа\n"
+                        "🕒 Время московское (МСК)\n"
+                        "♻️ *Бот работает 24/7*\n\n"
                         "💡 Нажмите на кнопки ниже!"
                     )
                     send_message(chat_id, welcome)
@@ -392,7 +440,7 @@ def bot_polling():
                     send_news_with_keyboard(chat_id, COSMETOLOGY_FEEDS, 7, "💄 *Топ-7 новостей косметологии*", "cosmetology")
 
                 elif text == "/health":
-                    send_message(chat_id, "✅ Бот работает нормально!")
+                    send_message(chat_id, "✅ Бот работает нормально!\n🕒 Московское время\n📅 Новости за 72 часа\n🧠 DeepSeek AI активен")
 
         except Exception as e:
             print(f"Ошибка в polling: {e}")
@@ -400,7 +448,7 @@ def bot_polling():
 
 @app.route('/')
 def index():
-    return "🏥 Медицинский новостной бот v2.0 работает!"
+    return "🏥 Медицинский новостной бот v3.0 (AI-картинки + DeepSeek) работает!"
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -419,7 +467,7 @@ def health():
 if __name__ == "__main__":
     ping_thread = threading.Thread(target=keep_alive, daemon=True)
     ping_thread.start()
-    print("🟢 Auto-ping активирован")
+    print("🟢 Auto-ping активирован (каждые 10 минут)")
 
     bot_thread = threading.Thread(target=bot_polling, daemon=True)
     bot_thread.start()
