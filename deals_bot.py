@@ -133,56 +133,140 @@ def extract_image_from_article(link):
         patterns = [
             r'<meta[^>]*property="og:image"[^>]*content="([^"]+)"',
             r'<meta[^>]*name="twitter:image"[^>]*content="([^"]+)"',
+            r'<meta[^>]*itemprop="image"[^>]*content="([^"]+)"',
             r'<img[^>]*src="([^"]+)"[^>]*class="[^"]*featured[^"]*"',
+            r'<img[^>]*src="([^"]+)"[^>]*class="[^"]*main-image[^"]*"',
         ]
 
         for pattern in patterns:
             match = re.search(pattern, response.text, re.IGNORECASE)
             if match:
                 img_url = match.group(1)
-                if img_url.startswith('http'):
-                    return img_url
+                if img_url.startswith('http') and not any(bad in img_url.lower() for bad in ['pixel', 'placeholder', 'blank']):
+                    # Проверяем, доступно ли изображение
+                    try:
+                        img_check = requests.head(img_url, timeout=5, headers=headers)
+                        if img_check.status_code == 200 and 'image' in img_check.headers.get('content-type', ''):
+                            return img_url
+                    except:
+                        continue
     except Exception as e:
         print(f"Ошибка извлечения картинки: {e}")
     return None
 
 def generate_ai_image(title):
+    # Более надежные источники изображений
     try:
-        prompt = f"medical research breakthrough, {title[:100]}"
+        # Пробуем через Pollinations.ai с другим промптом
+        prompt = f"medical research healthcare breakthrough, {title[:80]}"
         encoded_prompt = urllib.parse.quote(prompt)
         image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=768&nologo=true"
-
+        
+        # Проверяем доступность
         response = requests.head(image_url, timeout=10)
         if response.status_code == 200:
             return image_url
-    except Exception as e:
-        print(f"Ошибка генерации AI картинки: {e}")
-
+    except:
+        pass
+    
+    # Тематические изображения из надежных источников (все доступны везде)
     theme_images = {
-        "medical": "https://i.imgur.com/7qD4q4M.png",
-        "cosmetology": "https://i.imgur.com/Kp4zq8Z.png",
-        "research": "https://i.imgur.com/2nJqj7L.png",
-        "breakthrough": "https://i.imgur.com/Xr5Kq9M.png",
-        "default": "https://i.imgur.com/YxqJ5jK.png"
+        "cancer": "https://cdn.pixabay.com/photo/2020/07/14/13/25/dna-5404177_640.jpg",
+        "heart": "https://cdn.pixabay.com/photo/2016/03/06/05/47/heart-1239478_640.jpg",
+        "brain": "https://cdn.pixabay.com/photo/2015/09/09/16/05/brain-931968_640.jpg",
+        "skin": "https://cdn.pixabay.com/photo/2017/08/07/21/31/skin-2607783_640.jpg",
+        "research": "https://cdn.pixabay.com/photo/2016/06/28/05/10/microscope-1482987_640.jpg",
+        "medical": "https://cdn.pixabay.com/photo/2020/10/18/09/16/hospital-5664806_640.jpg",
+        "cosmetic": "https://cdn.pixabay.com/photo/2016/11/29/12/54/beauty-1869540_640.jpg",
+        "default": "https://cdn.pixabay.com/photo/2015/11/16/22/14/surgery-1046403_640.jpg"
     }
-
+    
     title_lower = title.lower()
-    if "medical" in title_lower or "clinical" in title_lower:
-        return theme_images["medical"]
-    elif "cosmetic" in title_lower or "skin" in title_lower:
-        return theme_images["cosmetology"]
-    elif "research" in title_lower or "study" in title_lower:
+    
+    # Определяем тему по ключевым словам
+    if any(word in title_lower for word in ['cancer', 'tumor', 'oncology']):
+        return theme_images["cancer"]
+    elif any(word in title_lower for word in ['heart', 'cardio', 'cardiovascular']):
+        return theme_images["heart"]
+    elif any(word in title_lower for word in ['brain', 'neural', 'neurology']):
+        return theme_images["brain"]
+    elif any(word in title_lower for word in ['skin', 'dermatology', 'cosmetic', 'beauty', 'anti-aging']):
+        return theme_images["skin"] if 'skin' in title_lower or 'dermatology' in title_lower else theme_images["cosmetic"]
+    elif any(word in title_lower for word in ['research', 'study', 'discovery', 'breakthrough']):
         return theme_images["research"]
-    elif "breakthrough" in title_lower or "revolutionary" in title_lower:
-        return theme_images["breakthrough"]
+    elif any(word in title_lower for word in ['hospital', 'clinic', 'treatment', 'therapy']):
+        return theme_images["medical"]
     else:
         return theme_images["default"]
 
 def get_news_image(link, title):
+    # Сначала пробуем извлечь из статьи
     image_url = extract_image_from_article(link)
-    if not image_url:
-        image_url = generate_ai_image(title)
-    return image_url
+    if image_url:
+        return image_url
+    
+    # Затем пробуем сгенерировать AI
+    image_url = generate_ai_image(title)
+    if image_url:
+        return image_url
+    
+    # Если ничего не работает, возвращаем дефолтное изображение
+    return "https://cdn.pixabay.com/photo/2015/11/16/22/14/surgery-1046403_640.jpg"
+
+def generate_ai_image(title):
+    # Пробуем через Pollinations.ai
+    try:
+        prompt = f"medical research healthcare breakthrough, {title[:80]}"
+        encoded_prompt = urllib.parse.quote(prompt)
+        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=768&nologo=true"
+        
+        response = requests.head(image_url, timeout=10)
+        if response.status_code == 200:
+            return image_url
+    except:
+        pass
+    
+    # Если AI не сработал, возвращаем None (будет использован fallback)
+    return None
+    
+def get_fallback_image(title):
+    """Резервные изображения из Pixabay (CDN, доступны везде)"""
+    medical_images = [
+        "https://cdn.pixabay.com/photo/2020/10/18/09/16/hospital-5664806_640.jpg",
+        "https://cdn.pixabay.com/photo/2016/06/28/05/10/microscope-1482987_640.jpg",
+        "https://cdn.pixabay.com/photo/2015/11/16/22/14/surgery-1046403_640.jpg",
+        "https://cdn.pixabay.com/photo/2016/03/06/05/47/heart-1239478_640.jpg",
+        "https://cdn.pixabay.com/photo/2015/09/09/16/05/brain-931968_640.jpg",
+        "https://cdn.pixabay.com/photo/2016/10/20/18/35/earth-1756274_640.jpg",
+    ]
+    
+    cosmetic_images = [
+        "https://cdn.pixabay.com/photo/2016/11/29/12/54/beauty-1869540_640.jpg",
+        "https://cdn.pixabay.com/photo/2017/08/07/21/31/skin-2607783_640.jpg",
+        "https://cdn.pixabay.com/photo/2014/04/13/20/17/beauty-323952_640.jpg",
+        "https://cdn.pixabay.com/photo/2015/10/31/12/20/face-cream-1015605_640.jpg",
+    ]
+    
+    import random
+    # Определяем категорию
+    if any(word in title.lower() for word in ['cosmetic', 'beauty', 'skin', 'anti-aging', 'косметолог']):
+        return random.choice(cosmetic_images)
+    else:
+        return random.choice(medical_images)
+        
+def get_news_image(link, title):
+    # 1. Пробуем извлечь из статьи
+    image_url = extract_image_from_article(link)
+    if image_url:
+        return image_url
+    
+    # 2. Пробуем сгенерировать через AI
+    image_url = generate_ai_image(title)
+    if image_url:
+        return image_url
+    
+    # 3. Возвращаем тематическое изображение из надежного источника
+    return get_fallback_image(title)
 
 def fetch_news(feed_list, limit=7, source_name="main"):
     articles = []
