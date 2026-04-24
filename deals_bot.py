@@ -31,29 +31,31 @@ translator = GoogleTranslator(source='en', target='ru')
 MOSCOW_TZ = timezone(timedelta(hours=3))
 
 # ==================== ИСТОЧНИКИ НОВОСТЕЙ ====================
-# Источники по медицинским исследованиям
+# Источники по косметологии (обновленные и рабочие)
+COSMETOLOGY_FEEDS = [
+    "https://www.sciencedaily.com/rss/matter_energy/cosmetics.xml",
+    "https://www.news-medical.net/tag/feed/Cosmetic-Medicine",
+    "https://www.medicalnewstoday.com/feeds/categories/beauty",
+    "https://www.cosmeticsdesign-europe.com/RSS",
+    "https://www.cosmeticsdesign-asia.com/RSS",
+    "https://www.happi.com/rss",
+    "https://www.personalcaremagazine.com/rss-news",
+    "https://www.dermascope.com/feed",
+]
+
+# Добавьте медицинские источники (более свежие)
 MEDICAL_FEEDS = [
     "https://www.nih.gov/news-events/news-releases/feed",
     "https://www.nature.com/subjects/medical-research.rss",
-    "https://www.sciencemag.org/rss/news_medicine.xml",
     "https://www.news-medical.net/medical-news.aspx?format=rss",
     "https://www.medicalnewstoday.com/feeds/all",
     "https://www.thelancet.com/rss",
     "https://www.nejm.org/rss",
     "https://www.who.int/rss-feeds/news-english.xml",
+    # Добавляем медицинские новости от ScienceDaily
+    "https://www.sciencedaily.com/rss/health_medicine/all.xml",
 ]
 
-# Источники по косметологии
-COSMETOLOGY_FEEDS = [
-    "https://www.sciencedaily.com/rss/matter_energy/cosmetics.xml",
-    "https://www.news-medical.net/medical-news.aspx?category=Cosmetic-Medicine&format=rss",
-    "https://www.cosmeticsdesign-europe.com/RSS",
-    "https://www.happi.com/rss",
-    "https://www.personalcaremagazine.com/rss-news",
-    "https://www.cosmeticsbusiness.com/rss/news",
-    "https://www.dermascope.com/feed",
-    "https://www.cosmeticsdesign-asia.com/RSS",
-]
 
 # Ключевые слова для оценки важности (медицинские и косметологические)
 IMPORTANCE_KEYWORDS = {
@@ -214,7 +216,7 @@ def get_news_image(link, title):
     return "https://cdn.pixabay.com/photo/2015/11/16/22/14/surgery-1046403_640.jpg"
 
 def generate_ai_image(title):
-    # Пробуем через Pollinations.ai
+    """Пробует сгенерировать AI-картинку"""
     try:
         prompt = f"medical research healthcare breakthrough, {title[:80]}"
         encoded_prompt = urllib.parse.quote(prompt)
@@ -225,12 +227,13 @@ def generate_ai_image(title):
             return image_url
     except:
         pass
-    
-    # Если AI не сработал, возвращаем None (будет использован fallback)
-    return None
-    
+    return None  # Если не получилось - возвращаем None
+
 def get_fallback_image(title):
-    """Резервные изображения из Pixabay (CDN, доступны везде)"""
+    """Резервные изображения из Pixabay (всегда доступны)"""
+    import random
+    
+    # Медицинские изображения
     medical_images = [
         "https://cdn.pixabay.com/photo/2020/10/18/09/16/hospital-5664806_640.jpg",
         "https://cdn.pixabay.com/photo/2016/06/28/05/10/microscope-1482987_640.jpg",
@@ -238,23 +241,29 @@ def get_fallback_image(title):
         "https://cdn.pixabay.com/photo/2016/03/06/05/47/heart-1239478_640.jpg",
         "https://cdn.pixabay.com/photo/2015/09/09/16/05/brain-931968_640.jpg",
         "https://cdn.pixabay.com/photo/2016/10/20/18/35/earth-1756274_640.jpg",
+        "https://cdn.pixabay.com/photo/2012/02/24/16/50/stethoscope-166002_640.jpg",
+        "https://cdn.pixabay.com/photo/2020/04/10/13/52/coronavirus-5025812_640.jpg",
     ]
     
+    # Косметологические изображения
     cosmetic_images = [
         "https://cdn.pixabay.com/photo/2016/11/29/12/54/beauty-1869540_640.jpg",
         "https://cdn.pixabay.com/photo/2017/08/07/21/31/skin-2607783_640.jpg",
         "https://cdn.pixabay.com/photo/2014/04/13/20/17/beauty-323952_640.jpg",
         "https://cdn.pixabay.com/photo/2015/10/31/12/20/face-cream-1015605_640.jpg",
+        "https://cdn.pixabay.com/photo/2019/08/28/18/01/spa-4437173_640.jpg",
+        "https://cdn.pixabay.com/photo/2017/01/19/19/08/cosmetics-1993549_640.jpg",
     ]
     
-    import random
-    # Определяем категорию
-    if any(word in title.lower() for word in ['cosmetic', 'beauty', 'skin', 'anti-aging', 'косметолог']):
+    # Определяем категорию по заголовку
+    title_lower = title.lower()
+    if any(word in title_lower for word in ['cosmetic', 'beauty', 'skin', 'anti-aging', 'косметолог', 'spa', 'face', 'cream', 'serum']):
         return random.choice(cosmetic_images)
     else:
         return random.choice(medical_images)
-        
+
 def get_news_image(link, title):
+    """Главная функция получения картинки"""
     # 1. Пробуем извлечь из статьи
     image_url = extract_image_from_article(link)
     if image_url:
@@ -265,7 +274,7 @@ def get_news_image(link, title):
     if image_url:
         return image_url
     
-    # 3. Возвращаем тематическое изображение из надежного источника
+    # 3. ВСЕГДА возвращаем fallback-изображение (никогда не возвращаем None)
     return get_fallback_image(title)
 
 def fetch_news(feed_list, limit=7, source_name="main"):
@@ -277,7 +286,7 @@ def fetch_news(feed_list, limit=7, source_name="main"):
             print(f"Загружаю: {url}")
             feed = feedparser.parse(url)
 
-            for entry in feed.entries[:15]:
+            for entry in feed.entries[:25]:
                 pub = entry.get("published_parsed")
                 if not pub:
                     continue
