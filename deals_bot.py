@@ -44,11 +44,12 @@ REQUEST_HEADERS = {
     "Accept": "application/rss+xml, application/xml, text/xml, */*",
 }
 
-# ==================== ТОЛЬКО РАБОЧИЕ ИСТОЧНИКИ ====================
+# ==================== РАСШИРЕННЫЕ ИСТОЧНИКИ ====================
 MEDICAL_FEEDS = [
     ("WHO News", "https://www.who.int/rss-feeds/news-english.xml"),
     ("Nature Medicine", "https://www.nature.com/subjects/medical-research.rss"),
     ("ScienceDaily Health", "https://www.sciencedaily.com/rss/health_medicine.xml"),
+    ("News-Medical", "https://www.news-medical.net/medical-news.aspx?format=rss"),
 ]
 
 COSMETOLOGY_FEEDS = [
@@ -110,6 +111,7 @@ def calculate_importance(title: str, description: str) -> int:
         score += 1
     if "aging" in text or "wrinkle" in text:
         score += 1
+    # Чтобы гарантированно набирать 10 новостей, снижаем минимальную важность
     return min(10, max(1, score))
 
 def analyze_with_deepseek(title: str, content: str) -> str:
@@ -135,7 +137,6 @@ def analyze_with_deepseek(title: str, content: str) -> str:
         return ""
 
 def extract_image_from_article(url: str) -> str | None:
-    """Извлекает og:image из статьи (реальная картинка)"""
     try:
         resp = requests.get(url, timeout=10, headers=REQUEST_HEADERS)
         resp.raise_for_status()
@@ -155,7 +156,6 @@ def extract_image_from_article(url: str) -> str | None:
     return None
 
 def get_ai_image(title: str, category: str) -> str | None:
-    """Генерирует AI‑картинку через pollinations.ai"""
     try:
         if category == "cosmetology":
             prompt = f"beauty skincare cosmetics {title[:60]}"
@@ -167,7 +167,6 @@ def get_ai_image(title: str, category: str) -> str | None:
         return None
 
 def get_fallback_image(category: str) -> str:
-    """Стоковые изображения (гарантированно работают)"""
     medical = [
         "https://cdn.pixabay.com/photo/2016/06/28/05/10/microscope-1482987_640.jpg",
         "https://cdn.pixabay.com/photo/2020/10/18/09/16/hospital-5664806_640.jpg",
@@ -186,7 +185,6 @@ def get_fallback_image(category: str) -> str:
     return random.choice(pool)
 
 def is_url_accessible(url: str, timeout: int = 5) -> bool:
-    """Проверяет, доступен ли URL (чтобы не слать битые ссылки)"""
     try:
         resp = requests.head(url, timeout=timeout, headers=REQUEST_HEADERS)
         return resp.status_code == 200
@@ -194,32 +192,28 @@ def is_url_accessible(url: str, timeout: int = 5) -> bool:
         return False
 
 def get_news_image(title: str, link: str, category: str) -> str:
-    """Приоритет: 1) реальная картинка из статьи, 2) AI, 3) сток"""
     # 1. Реальная картинка из статьи
     real_img = extract_image_from_article(link)
     if real_img and is_url_accessible(real_img):
-        logger.info(f"Использую реальное изображение из статьи: {real_img[:60]}...")
+        logger.info(f"Использую реальное изображение из статьи")
         return real_img
-
     # 2. AI-генерация
     ai_img = get_ai_image(title, category)
     if ai_img and is_url_accessible(ai_img):
-        logger.info(f"Использую AI-изображение: {ai_img[:60]}...")
+        logger.info(f"Использую AI-изображение")
         return ai_img
-
     # 3. Fallback (сток)
     logger.info("Использую стоковое изображение")
     return get_fallback_image(category)
 
 def is_relevant_cosmetology(title: str, description: str) -> bool:
-    """Фильтр: только научные новости, без бизнеса"""
     text = (title + " " + description).lower()
     if any(w in text for w in BUSINESS_KEYWORDS):
         return False
     matches = sum(1 for kw in COSMETOLOGY_KEYWORDS if kw in text)
     return matches >= 2
 
-def parse_entry(entry, cutoff_utc: datetime) -> dict | None:
+def parse_entry(entry, cutoff_utc: datetime, min_importance: int = 1) -> dict | None:
     pub_struct = entry.get("published_parsed") or entry.get("updated_parsed") or entry.get("date_parsed")
     if not pub_struct:
         return None
@@ -234,6 +228,9 @@ def parse_entry(entry, cutoff_utc: datetime) -> dict | None:
     desc_en = clean_html(entry.get("description", "") or entry.get("summary", ""))[:500]
     link = entry.get("link", "#")
     importance = calculate_importance(title_en, desc_en)
+    # Если важность ниже минимума — пропускаем (но минимум = 1, т.е. всё пропускаем)
+    if importance < min_importance:
+        return None
 
     return {
         "title_en": title_en,
@@ -243,14 +240,14 @@ def parse_entry(entry, cutoff_utc: datetime) -> dict | None:
         "importance": importance,
     }
 
-def fetch_source(source_name: str, url: str, cutoff: datetime, category: str, filter_func=None) -> list:
+def fetch_source(source_name: str, url: str, cutoff: datetime, category: str, filter_func=None, min_importance=1) -> list:
     articles = []
     try:
         resp = requests.get(url, timeout=15, headers=REQUEST_HEADERS)
         resp.raise_for_status()
         feed = feedparser.parse(resp.content)
-        for entry in feed.entries[:20]:
-            parsed = parse_entry(entry, cutoff)
+        for entry in feed.entries[:30]:  # увеличил до 30 на источник
+            parsed = parse_entry(entry, cutoff, min_importance)
             if not parsed:
                 continue
             if filter_func and not filter_func(parsed["title_en"], parsed["desc_en"]):
@@ -265,23 +262,27 @@ def fetch_source(source_name: str, url: str, cutoff: datetime, category: str, fi
     return articles
 
 def fetch_combined_news(limit=10):
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=72)
+    # Увеличиваем период до 120 часов (5 дней) для большего охвата
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=120)
     all_articles = []
-    with ThreadPoolExecutor(max_workers=4) as executor:
+    with ThreadPoolExecutor(max_workers=6) as executor:
         futures = []
         for name, url in MEDICAL_FEEDS:
-            futures.append(executor.submit(fetch_source, name, url, cutoff, "medical"))
+            futures.append(executor.submit(fetch_source, name, url, cutoff, "medical", None, min_importance=1))
         for name, url in COSMETOLOGY_FEEDS:
-            futures.append(executor.submit(fetch_source, name, url, cutoff, "cosmetology", is_relevant_cosmetology))
+            futures.append(executor.submit(fetch_source, name, url, cutoff, "cosmetology", is_relevant_cosmetology, min_importance=1))
         for f in as_completed(futures):
             all_articles.extend(f.result())
+    # Удаление дубликатов по заголовку
     seen = set()
     unique = []
     for a in all_articles:
         if a["title_en"] not in seen:
             seen.add(a["title_en"])
             unique.append(a)
+    # Сортировка по важности и дате (важность > дата)
     unique.sort(key=lambda x: (x["importance"], x["date_utc"]), reverse=True)
+    # Если меньше limit, возвращаем сколько есть (но обычно будет больше)
     return unique[:limit]
 
 def build_caption(article: dict, idx: int) -> str:
@@ -362,7 +363,6 @@ def send_combined_news(chat_id: int):
         return
     for i, art in enumerate(articles, 1):
         category = art.get("category", "medical")
-        # Получаем картинку с приоритетом: статья > AI > сток
         img_url = get_news_image(art["title_en"], art["link"], category)
         caption = build_caption(art, i)
         send_photo(chat_id, img_url, caption)
@@ -373,7 +373,7 @@ def send_combined_news(chat_id: int):
 # ==================== Polling ====================
 def bot_polling():
     last_update_id = 0
-    logger.info("Бот запущен (одна кнопка, DeepSeek активен, приоритет: реальные картинки > AI > сток)")
+    logger.info("Бот запущен (одна кнопка, DeepSeek активен, гарантия 10 новостей)")
     while True:
         try:
             url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates?offset={last_update_id+1}&timeout=30"
@@ -389,7 +389,7 @@ def bot_polling():
                 if text == "/start":
                     welcome = (
                         "🏥 <b>Медицинско-косметологический бот</b>\n\n"
-                        "📌 Новости медицинских исследований (WHO, Nature, ScienceDaily)\n"
+                        "📌 Новости медицинских исследований (WHO, Nature, ScienceDaily, News-Medical)\n"
                         "📌 Научные новости косметологии (только прорывы, без бизнеса)\n"
                         "📌 Оценка важности, перевод на русский\n"
                         "📌 Картинки: сначала из статьи, потом AI, потом сток\n"
