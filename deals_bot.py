@@ -42,23 +42,17 @@ translator = GoogleTranslator(source="en", target="ru")
 REQUEST_HEADERS = {
     "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36",
     "Accept": "application/rss+xml, application/xml, text/xml, */*",
-    "Accept-Language": "en-US,en;q=0.9",
 }
 
 # ==================== ТОЛЬКО РАБОЧИЕ ИСТОЧНИКИ ====================
-# Медицина (из логов: WHO, Nature, ScienceDaily, NEJM)
 MEDICAL_FEEDS = [
     ("WHO News", "https://www.who.int/rss-feeds/news-english.xml"),
     ("Nature Medicine", "https://www.nature.com/subjects/medical-research.rss"),
     ("ScienceDaily Health", "https://www.sciencedaily.com/rss/health_medicine.xml"),
-    ("NEJM", "https://www.nejm.org/rss"),
 ]
 
-# Косметология – только те, что могут давать научные новости
 COSMETOLOGY_FEEDS = [
     ("Dermascope", "https://www.dermascope.com/feed"),
-    ("Global Cosmetics News", "https://www.globalcosmeticsnews.com/feed/"),
-    ("Aesthetic Medicine", "https://aestheticmed.co.uk/feed"),
 ]
 
 # Ключевые слова для отбора научных новостей косметологии
@@ -75,7 +69,6 @@ COSMETOLOGY_KEYWORDS = [
     "коллаген", "гиалуроновая", "ретинол", "пептид", "антивозрастной",
 ]
 
-# Слова‑маркеры бизнес‑новостей (исключаем)
 BUSINESS_KEYWORDS = [
     "profit", "revenue", "acquisition", "merger", "ceo", "market share",
     "stock", "investor", "funding", "launch", "brand", "partnership"
@@ -142,6 +135,7 @@ def analyze_with_deepseek(title: str, content: str) -> str:
         return ""
 
 def extract_image_from_article(url: str) -> str | None:
+    """Извлекает og:image из статьи (реальная картинка)"""
     try:
         resp = requests.get(url, timeout=10, headers=REQUEST_HEADERS)
         resp.raise_for_status()
@@ -160,25 +154,8 @@ def extract_image_from_article(url: str) -> str | None:
         pass
     return None
 
-def get_fallback_image(category: str) -> str:
-    medical = [
-        "https://cdn.pixabay.com/photo/2016/06/28/05/10/microscope-1482987_640.jpg",
-        "https://cdn.pixabay.com/photo/2020/10/18/09/16/hospital-5664806_640.jpg",
-        "https://cdn.pixabay.com/photo/2015/11/16/22/14/surgery-1046403_640.jpg",
-        "https://cdn.pixabay.com/photo/2016/03/06/05/47/heart-1239478_640.jpg",
-        "https://cdn.pixabay.com/photo/2015/09/09/16/05/brain-931968_640.jpg",
-    ]
-    cosmo = [
-        "https://cdn.pixabay.com/photo/2016/11/29/12/54/beauty-1869540_640.jpg",
-        "https://cdn.pixabay.com/photo/2017/08/07/21/31/skin-2607783_640.jpg",
-        "https://cdn.pixabay.com/photo/2014/04/13/20/17/beauty-323952_640.jpg",
-        "https://cdn.pixabay.com/photo/2015/10/31/12/20/face-cream-1015605_640.jpg",
-        "https://cdn.pixabay.com/photo/2019/08/28/18/01/spa-4437173_640.jpg",
-    ]
-    pool = medical if category == "medical" else cosmo
-    return random.choice(pool)
-
 def get_ai_image(title: str, category: str) -> str | None:
+    """Генерирует AI‑картинку через pollinations.ai"""
     try:
         if category == "cosmetology":
             prompt = f"beauty skincare cosmetics {title[:60]}"
@@ -189,7 +166,27 @@ def get_ai_image(title: str, category: str) -> str | None:
     except Exception:
         return None
 
-def is_url_accessible(url: str, timeout: int = 3) -> bool:
+def get_fallback_image(category: str) -> str:
+    """Стоковые изображения (гарантированно работают)"""
+    medical = [
+        "https://cdn.pixabay.com/photo/2016/06/28/05/10/microscope-1482987_640.jpg",
+        "https://cdn.pixabay.com/photo/2020/10/18/09/16/hospital-5664806_640.jpg",
+        "https://cdn.pixabay.com/photo/2015/11/16/22/14/surgery-1046403_640.jpg",
+        "https://cdn.pixabay.com/photo/2016/03/06/05/47/heart-1239478_640.jpg",
+        "https://cdn.pixabay.com/photo/2015/09/09/16/05/brain-931968_640.jpg",
+    ]
+    cosmetic = [
+        "https://cdn.pixabay.com/photo/2016/11/29/12/54/beauty-1869540_640.jpg",
+        "https://cdn.pixabay.com/photo/2017/08/07/21/31/skin-2607783_640.jpg",
+        "https://cdn.pixabay.com/photo/2014/04/13/20/17/beauty-323952_640.jpg",
+        "https://cdn.pixabay.com/photo/2015/10/31/12/20/face-cream-1015605_640.jpg",
+        "https://cdn.pixabay.com/photo/2019/08/28/18/01/spa-4437173_640.jpg",
+    ]
+    pool = medical if category == "medical" else cosmetic
+    return random.choice(pool)
+
+def is_url_accessible(url: str, timeout: int = 5) -> bool:
+    """Проверяет, доступен ли URL (чтобы не слать битые ссылки)"""
     try:
         resp = requests.head(url, timeout=timeout, headers=REQUEST_HEADERS)
         return resp.status_code == 200
@@ -197,24 +194,28 @@ def is_url_accessible(url: str, timeout: int = 3) -> bool:
         return False
 
 def get_news_image(title: str, link: str, category: str) -> str:
+    """Приоритет: 1) реальная картинка из статьи, 2) AI, 3) сток"""
     # 1. Реальная картинка из статьи
     real_img = extract_image_from_article(link)
     if real_img and is_url_accessible(real_img):
+        logger.info(f"Использую реальное изображение из статьи: {real_img[:60]}...")
         return real_img
+
     # 2. AI-генерация
     ai_img = get_ai_image(title, category)
     if ai_img and is_url_accessible(ai_img):
+        logger.info(f"Использую AI-изображение: {ai_img[:60]}...")
         return ai_img
-    # 3. Fallback
+
+    # 3. Fallback (сток)
+    logger.info("Использую стоковое изображение")
     return get_fallback_image(category)
 
 def is_relevant_cosmetology(title: str, description: str) -> bool:
-    """Проверяет, что новость про научные/технические аспекты, а не бизнес."""
+    """Фильтр: только научные новости, без бизнеса"""
     text = (title + " " + description).lower()
-    # Исключаем бизнес
     if any(w in text for w in BUSINESS_KEYWORDS):
         return False
-    # Должно быть хотя бы 2 ключевых слова
     matches = sum(1 for kw in COSMETOLOGY_KEYWORDS if kw in text)
     return matches >= 2
 
@@ -243,7 +244,6 @@ def parse_entry(entry, cutoff_utc: datetime) -> dict | None:
     }
 
 def fetch_source(source_name: str, url: str, cutoff: datetime, category: str, filter_func=None) -> list:
-    """Загружает один RSS-источник, применяет фильтр (для косметологии)."""
     articles = []
     try:
         resp = requests.get(url, timeout=15, headers=REQUEST_HEADERS)
@@ -253,49 +253,40 @@ def fetch_source(source_name: str, url: str, cutoff: datetime, category: str, fi
             parsed = parse_entry(entry, cutoff)
             if not parsed:
                 continue
-            # Дополнительная фильтрация для косметологии
             if filter_func and not filter_func(parsed["title_en"], parsed["desc_en"]):
                 continue
             parsed["source"] = source_name
             parsed["category"] = category
             articles.append(parsed)
-        logger.info(f"{source_name}: +{len(articles)} новостей")
+        if articles:
+            logger.info(f"{source_name}: +{len(articles)} новостей")
     except Exception as e:
         logger.warning(f"Ошибка загрузки {source_name}: {e}")
     return articles
 
 def fetch_combined_news(limit=10):
-    """Собирает новости из медицины и отфильтрованной косметологии, возвращает топ N."""
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=72)  # 3 дня
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=72)
     all_articles = []
-
-    with ThreadPoolExecutor(max_workers=6) as executor:
+    with ThreadPoolExecutor(max_workers=4) as executor:
         futures = []
-        # Медицина – без фильтра
         for name, url in MEDICAL_FEEDS:
             futures.append(executor.submit(fetch_source, name, url, cutoff, "medical"))
-        # Косметология – с фильтром
         for name, url in COSMETOLOGY_FEEDS:
             futures.append(executor.submit(fetch_source, name, url, cutoff, "cosmetology", is_relevant_cosmetology))
         for f in as_completed(futures):
             all_articles.extend(f.result())
-
-    # Удаление дубликатов по заголовку
     seen = set()
     unique = []
     for a in all_articles:
         if a["title_en"] not in seen:
             seen.add(a["title_en"])
             unique.append(a)
-
-    # Сортировка: важность, потом дата
     unique.sort(key=lambda x: (x["importance"], x["date_utc"]), reverse=True)
     return unique[:limit]
 
-def build_caption(article: dict, idx: int, with_ai: bool = True) -> str:
+def build_caption(article: dict, idx: int) -> str:
     title_ru = escape_html(translate_text(article["title_en"]))
     desc_ru = escape_html(translate_text(article["desc_en"]))[:350]
-
     imp = article["importance"]
     if imp >= 8:
         emoji = "🔴🔥"
@@ -305,7 +296,6 @@ def build_caption(article: dict, idx: int, with_ai: bool = True) -> str:
         emoji = "🟡📌"
     else:
         emoji = "⚪📰"
-
     msk_time = article["date_utc"].astimezone(MOSCOW_TZ).strftime("%d.%m.%Y %H:%M")
     caption = (
         f"{emoji} <b>{idx}. {title_ru}</b>\n\n"
@@ -314,7 +304,7 @@ def build_caption(article: dict, idx: int, with_ai: bool = True) -> str:
         f"⭐ Важность: {imp}/10\n\n"
         f"🔗 <a href='{article['link']}'>Читать полностью</a>"
     )
-    if with_ai and deepseek_client:
+    if deepseek_client:
         caption += analyze_with_deepseek(title_ru, desc_ru)
     return caption
 
@@ -351,9 +341,7 @@ def send_photo(chat_id: int, image_url: str, caption: str):
 
 def show_keyboard(chat_id: int):
     keyboard = {
-        "keyboard": [
-            ["📰 Топ 10 новостей (медицина + косметология)"]
-        ],
+        "keyboard": [["📰 Топ 10 новостей (медицина + косметология)"]],
         "resize_keyboard": True,
     }
     url = f"https://api.telegram.org/bot{BOT_TOKEN}/sendMessage"
@@ -374,6 +362,7 @@ def send_combined_news(chat_id: int):
         return
     for i, art in enumerate(articles, 1):
         category = art.get("category", "medical")
+        # Получаем картинку с приоритетом: статья > AI > сток
         img_url = get_news_image(art["title_en"], art["link"], category)
         caption = build_caption(art, i)
         send_photo(chat_id, img_url, caption)
@@ -381,10 +370,10 @@ def send_combined_news(chat_id: int):
     send_message(chat_id, f"✅ Показано <b>{len(articles)}</b> новостей с иллюстрациями.")
     show_keyboard(chat_id)
 
-# ==================== Long Polling ====================
+# ==================== Polling ====================
 def bot_polling():
     last_update_id = 0
-    logger.info("Бот запущен (одна кнопка, DeepSeek оставлен)")
+    logger.info("Бот запущен (одна кнопка, DeepSeek активен, приоритет: реальные картинки > AI > сток)")
     while True:
         try:
             url = f"https://api.telegram.org/bot{BOT_TOKEN}/getUpdates?offset={last_update_id+1}&timeout=30"
@@ -397,25 +386,22 @@ def bot_polling():
                     continue
                 chat_id = msg["chat"]["id"]
                 text = msg.get("text", "")
-
                 if text == "/start":
                     welcome = (
                         "🏥 <b>Медицинско-косметологический бот</b>\n\n"
-                        "📌 Новости медицинских исследований (WHO, Nature, ScienceDaily, NEJM)\n"
-                        "📌 Научные новости косметологии (только прорывы, клинические данные)\n"
+                        "📌 Новости медицинских исследований (WHO, Nature, ScienceDaily)\n"
+                        "📌 Научные новости косметологии (только прорывы, без бизнеса)\n"
                         "📌 Оценка важности, перевод на русский\n"
-                        "📌 Иллюстрации из статей / AI / сток\n"
-                        "📌 Анализ DeepSeek (если есть баланс)\n\n"
+                        "📌 Картинки: сначала из статьи, потом AI, потом сток\n"
+                        "📌 Анализ DeepSeek 🧠\n\n"
                         "👇 <b>Нажмите кнопку ниже</b>"
                     )
                     send_message(chat_id, welcome)
                     show_keyboard(chat_id)
-
                 elif text == "📰 Топ 10 новостей (медицина + косметология)":
                     threading.Thread(target=send_combined_news, args=(chat_id,), daemon=True).start()
-
                 elif text == "/health":
-                    send_message(chat_id, "✅ Бот работает нормально!")
+                    send_message(chat_id, "✅ Бот работает")
         except Exception as e:
             logger.error(f"Polling error: {e}")
             time.sleep(5)
