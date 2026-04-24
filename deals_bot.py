@@ -9,6 +9,7 @@ import threading
 from deep_translator import GoogleTranslator
 import urllib.parse
 import openai
+import random
 
 app = Flask(__name__)
 BOT_TOKEN = os.environ.get("BOT_TOKEN")
@@ -43,7 +44,7 @@ COSMETOLOGY_FEEDS = [
     "https://www.dermascope.com/feed",
 ]
 
-# Добавьте медицинские источники (более свежие)
+# Медицинские источники
 MEDICAL_FEEDS = [
     "https://www.nih.gov/news-events/news-releases/feed",
     "https://www.nature.com/subjects/medical-research.rss",
@@ -52,17 +53,15 @@ MEDICAL_FEEDS = [
     "https://www.thelancet.com/rss",
     "https://www.nejm.org/rss",
     "https://www.who.int/rss-feeds/news-english.xml",
-    # Добавляем медицинские новости от ScienceDaily
     "https://www.sciencedaily.com/rss/health_medicine/all.xml",
 ]
 
-
-# Ключевые слова для оценки важности (медицинские и косметологические)
+# Ключевые слова для оценки важности
 IMPORTANCE_KEYWORDS = {
     "high": [
         "breakthrough", "revolutionary", "cure", "treatment", "clinical trial", 
         "fda approved", "groundbreaking", "significant discovery", "gene therapy",
-        "stem cell", "breakthrough", "innovation", "revolutionary treatment",
+        "stem cell", "innovation", "revolutionary treatment",
         "clinical study", "research finding"
     ],
     "medium": [
@@ -73,6 +72,8 @@ IMPORTANCE_KEYWORDS = {
 }
 
 def clean_html(raw):
+    if not raw:
+        return ""
     return re.sub(r'<.*?>', '', raw)
 
 def calculate_importance(title, description):
@@ -84,7 +85,6 @@ def calculate_importance(title, description):
     for kw in IMPORTANCE_KEYWORDS["medium"]:
         if kw in text:
             score += 1
-    # Дополнительные веса для ключевых слов
     if "cancer" in text or "tumor" in text:
         score += 1
     if "aging" in text or "wrinkle" in text:
@@ -145,7 +145,6 @@ def extract_image_from_article(link):
             if match:
                 img_url = match.group(1)
                 if img_url.startswith('http') and not any(bad in img_url.lower() for bad in ['pixel', 'placeholder', 'blank']):
-                    # Проверяем, доступно ли изображение
                     try:
                         img_check = requests.head(img_url, timeout=5, headers=headers)
                         if img_check.status_code == 200 and 'image' in img_check.headers.get('content-type', ''):
@@ -156,137 +155,49 @@ def extract_image_from_article(link):
         print(f"Ошибка извлечения картинки: {e}")
     return None
 
-def generate_ai_image(title):
-    # Более надежные источники изображений
-    try:
-        # Пробуем через Pollinations.ai с другим промптом
-        prompt = f"medical research healthcare breakthrough, {title[:80]}"
-        encoded_prompt = urllib.parse.quote(prompt)
-        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=768&nologo=true"
-        
-        # Проверяем доступность
-        response = requests.head(image_url, timeout=10)
-        if response.status_code == 200:
-            return image_url
-    except:
-        pass
-    
-    # Тематические изображения из надежных источников (все доступны везде)
-    theme_images = {
-        "cancer": "https://cdn.pixabay.com/photo/2020/07/14/13/25/dna-5404177_640.jpg",
-        "heart": "https://cdn.pixabay.com/photo/2016/03/06/05/47/heart-1239478_640.jpg",
-        "brain": "https://cdn.pixabay.com/photo/2015/09/09/16/05/brain-931968_640.jpg",
-        "skin": "https://cdn.pixabay.com/photo/2017/08/07/21/31/skin-2607783_640.jpg",
-        "research": "https://cdn.pixabay.com/photo/2016/06/28/05/10/microscope-1482987_640.jpg",
-        "medical": "https://cdn.pixabay.com/photo/2020/10/18/09/16/hospital-5664806_640.jpg",
-        "cosmetic": "https://cdn.pixabay.com/photo/2016/11/29/12/54/beauty-1869540_640.jpg",
-        "default": "https://cdn.pixabay.com/photo/2015/11/16/22/14/surgery-1046403_640.jpg"
-    }
-    
-    title_lower = title.lower()
-    
-    # Определяем тему по ключевым словам
-    if any(word in title_lower for word in ['cancer', 'tumor', 'oncology']):
-        return theme_images["cancer"]
-    elif any(word in title_lower for word in ['heart', 'cardio', 'cardiovascular']):
-        return theme_images["heart"]
-    elif any(word in title_lower for word in ['brain', 'neural', 'neurology']):
-        return theme_images["brain"]
-    elif any(word in title_lower for word in ['skin', 'dermatology', 'cosmetic', 'beauty', 'anti-aging']):
-        return theme_images["skin"] if 'skin' in title_lower or 'dermatology' in title_lower else theme_images["cosmetic"]
-    elif any(word in title_lower for word in ['research', 'study', 'discovery', 'breakthrough']):
-        return theme_images["research"]
-    elif any(word in title_lower for word in ['hospital', 'clinic', 'treatment', 'therapy']):
-        return theme_images["medical"]
-    else:
-        return theme_images["default"]
-
-def get_news_image(link, title):
-    # Сначала пробуем извлечь из статьи
-    image_url = extract_image_from_article(link)
-    if image_url:
-        return image_url
-    
-    # Затем пробуем сгенерировать AI
-    image_url = generate_ai_image(title)
-    if image_url:
-        return image_url
-    
-    # Если ничего не работает, возвращаем дефолтное изображение
-    return "https://cdn.pixabay.com/photo/2015/11/16/22/14/surgery-1046403_640.jpg"
-
-def generate_ai_image(title):
-    """Пробует сгенерировать AI-картинку"""
-    try:
-        prompt = f"medical research healthcare breakthrough, {title[:80]}"
-        encoded_prompt = urllib.parse.quote(prompt)
-        image_url = f"https://image.pollinations.ai/prompt/{encoded_prompt}?width=1024&height=768&nologo=true"
-        
-        response = requests.head(image_url, timeout=10)
-        if response.status_code == 200:
-            return image_url
-    except:
-        pass
-    return None  # Если не получилось - возвращаем None
-
 def get_fallback_image(title):
     """Резервные изображения из Pixabay (всегда доступны)"""
-    import random
-    
-    # Медицинские изображения
     medical_images = [
         "https://cdn.pixabay.com/photo/2020/10/18/09/16/hospital-5664806_640.jpg",
         "https://cdn.pixabay.com/photo/2016/06/28/05/10/microscope-1482987_640.jpg",
         "https://cdn.pixabay.com/photo/2015/11/16/22/14/surgery-1046403_640.jpg",
         "https://cdn.pixabay.com/photo/2016/03/06/05/47/heart-1239478_640.jpg",
         "https://cdn.pixabay.com/photo/2015/09/09/16/05/brain-931968_640.jpg",
-        "https://cdn.pixabay.com/photo/2016/10/20/18/35/earth-1756274_640.jpg",
-        "https://cdn.pixabay.com/photo/2012/02/24/16/50/stethoscope-166002_640.jpg",
-        "https://cdn.pixabay.com/photo/2020/04/10/13/52/coronavirus-5025812_640.jpg",
     ]
     
-    # Косметологические изображения
     cosmetic_images = [
         "https://cdn.pixabay.com/photo/2016/11/29/12/54/beauty-1869540_640.jpg",
         "https://cdn.pixabay.com/photo/2017/08/07/21/31/skin-2607783_640.jpg",
         "https://cdn.pixabay.com/photo/2014/04/13/20/17/beauty-323952_640.jpg",
         "https://cdn.pixabay.com/photo/2015/10/31/12/20/face-cream-1015605_640.jpg",
-        "https://cdn.pixabay.com/photo/2019/08/28/18/01/spa-4437173_640.jpg",
-        "https://cdn.pixabay.com/photo/2017/01/19/19/08/cosmetics-1993549_640.jpg",
     ]
     
-    # Определяем категорию по заголовку
     title_lower = title.lower()
-    if any(word in title_lower for word in ['cosmetic', 'beauty', 'skin', 'anti-aging', 'косметолог', 'spa', 'face', 'cream', 'serum']):
+    if any(word in title_lower for word in ['cosmetic', 'beauty', 'skin', 'anti-aging', 'косметолог', 'spa', 'face', 'cream']):
         return random.choice(cosmetic_images)
     else:
         return random.choice(medical_images)
 
 def get_news_image(link, title):
-    """Главная функция получения картинки"""
+    """Главная функция получения картинки - ВСЕГДА возвращает URL"""
     # 1. Пробуем извлечь из статьи
     image_url = extract_image_from_article(link)
     if image_url:
         return image_url
     
-    # 2. Пробуем сгенерировать через AI
-    image_url = generate_ai_image(title)
-    if image_url:
-        return image_url
-    
-    # 3. ВСЕГДА возвращаем fallback-изображение (никогда не возвращаем None)
+    # 2. Возвращаем fallback (всегда рабочий)
     return get_fallback_image(title)
 
 def fetch_news(feed_list, limit=7, source_name="main"):
     articles = []
-    cutoff = datetime.now(timezone.utc) - timedelta(hours=36)
+    cutoff = datetime.now(timezone.utc) - timedelta(hours=72)  # Увеличил до 72 часов
 
     for url in feed_list:
         try:
             print(f"Загружаю: {url}")
             feed = feedparser.parse(url)
 
-            for entry in feed.entries[:25]:
+            for entry in feed.entries[:30]:  # Увеличил до 30
                 pub = entry.get("published_parsed")
                 if not pub:
                     continue
@@ -314,11 +225,7 @@ def fetch_news(feed_list, limit=7, source_name="main"):
                     title_ru = title_en
                     desc_ru = desc_en[:400]
 
-                image_url = None
-                if 'media_content' in entry and entry.media_content:
-                    image_url = entry.media_content[0].get('url')
-                if not image_url:
-                    image_url = get_news_image(link, title_en)
+                image_url = get_news_image(link, title_en)  # Упростил вызов
 
                 articles.append({
                     "title": title_ru,
@@ -412,7 +319,7 @@ def send_news_with_keyboard(chat_id, feed_list, count, title_message, source_typ
 
         time.sleep(0.5)
 
-    send_message(chat_id, f"✅ *Готово!* Показано {len(news_list)} новостей с AI-картинками 🖼️")
+    send_message(chat_id, f"✅ *Готово!* Показано {len(news_list)} новостей с картинками 🖼️")
     show_keyboard(chat_id)
 
 def show_keyboard(chat_id):
@@ -435,7 +342,7 @@ def show_keyboard(chat_id):
     requests.post(url, json=payload)
 
 def keep_alive():
-    bot_url = f"https://your-bot-name.onrender.com/health"  # Измените на ваш URL
+    bot_url = f"https://your-bot-name.onrender.com/health"
     while True:
         time.sleep(10 * 60)
         try:
@@ -446,8 +353,8 @@ def keep_alive():
 
 def bot_polling():
     global last_update_id
-    print("✅ Медицинский бот запущен с DeepSeek AI и генерацией картинок!")
-    print("📌 Команды: /start, /medical, /cosmetology")
+    print("✅ Медицинский бот запущен!")
+    print("📌 Доступные команды: /start")
 
     while True:
         try:
@@ -463,38 +370,29 @@ def bot_polling():
 
                 if text == "/start":
                     welcome = (
-                        "🏥 *Медицинский новостной бот v1.0* 🖼️🔬\n\n"
+                        "🏥 *Медицинский новостной бот v2.0* 🖼️🔬\n\n"
                         "📊 *Что умею:*\n"
-                        "• Собираю новости из 15+ медицинских источников\n"
-                        "• **Оцениваю важность исследований** (от 1 до 10)\n"
+                        "• Собираю новости из 15+ источников\n"
+                        "• Оцениваю важность (1-10)\n"
                         "• Перевожу на русский\n"
-                        "• Генерирую AI-картинки\n"
-                        "• **Анализирую новости через DeepSeek AI** 🧠\n\n"
-                        "📌 *Методология оценки важности:*\n"
-                        "• Базовая оценка: 5/10\n"
-                        "• +2 за ключевые слова: прорыв, клинические испытания, FDA\n"
-                        "• +1 за исследования, новые методы\n"
-                        "• +1 за лечение заболеваний или anti-aging\n\n"
+                        "• Добавляю картинки к новостям\n"
+                        "• Анализирую через DeepSeek AI 🧠\n\n"
                         "📌 *Доступные категории:*\n"
                         "• 🏥 Медицинские исследования\n"
-                        "• 💄 Косметология и эстетическая медицина\n\n"
-                        "⏰ Новости только за последние 36 часов\n"
-                        "🕒 Время указано московское (МСК)\n"
-                        "♻️ *Бот работает 24/7*\n"
-                        "🧠 *DeepSeek AI анализирует каждую новость*\n\n"
+                        "• 💄 Косметология\n\n"
                         "💡 Нажмите на кнопки ниже!"
                     )
                     send_message(chat_id, welcome)
                     show_keyboard(chat_id)
 
-                elif text == "/medical" or text == "🏥 Топ 7 новостей по мед. исследованиям":
-                    send_news_with_keyboard(chat_id, MEDICAL_FEEDS, 7, "🏥 *Топ-7 важнейших новостей медицинских исследований*", "medical")
+                elif text == "🏥 Топ 7 новостей по мед. исследованиям":
+                    send_news_with_keyboard(chat_id, MEDICAL_FEEDS, 7, "🏥 *Топ-7 медицинских исследований*", "medical")
 
-                elif text == "/cosmetology" or text == "💄 Топ 7 новостей косметологии":
-                    send_news_with_keyboard(chat_id, COSMETOLOGY_FEEDS, 7, "💄 *Топ-7 важнейших новостей косметологии и эстетической медицины*", "cosmetology")
+                elif text == "💄 Топ 7 новостей косметологии":
+                    send_news_with_keyboard(chat_id, COSMETOLOGY_FEEDS, 7, "💄 *Топ-7 новостей косметологии*", "cosmetology")
 
                 elif text == "/health":
-                    send_message(chat_id, "✅ Медицинский бот работает нормально!\n🕒 Московское время\n📅 Новости за 36 часов\n♻️ Авто-пинг активен\n🧠 DeepSeek AI подключен")
+                    send_message(chat_id, "✅ Бот работает нормально!")
 
         except Exception as e:
             print(f"Ошибка в polling: {e}")
@@ -502,7 +400,7 @@ def bot_polling():
 
 @app.route('/')
 def index():
-    return "🏥 Медицинский новостной бот v1.0 (DeepSeek AI + картинки) работает!"
+    return "🏥 Медицинский новостной бот v2.0 работает!"
 
 @app.route('/webhook', methods=['POST'])
 def webhook():
@@ -521,7 +419,7 @@ def health():
 if __name__ == "__main__":
     ping_thread = threading.Thread(target=keep_alive, daemon=True)
     ping_thread.start()
-    print("🟢 Auto-ping активирован (каждые 10 минут)")
+    print("🟢 Auto-ping активирован")
 
     bot_thread = threading.Thread(target=bot_polling, daemon=True)
     bot_thread.start()
